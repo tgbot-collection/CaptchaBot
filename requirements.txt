@@ -1,0 +1,5 @@
+pyrogram==2.0.30
+captcha==0.4
+APScheduler==3.9.1
+tgcrypto==1.2.3
+redis==4.3.4
