@@ -7,16 +7,17 @@
 
 __author__ = "Benny <benny.think@gmail.com>"
 
-import os
 import logging
+import os
+import random
+import re
+import string
 import time
 
 import redis
-from pyrogram import Client, filters, types, enums
 from captcha.image import ImageCaptcha
-import re
-import string
-import random
+from pyrogram import Client, enums, filters, types
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 APP_ID = os.getenv("APP_ID")
@@ -28,15 +29,16 @@ app = Client("group", APP_ID, API_HASH, bot_token=BOT_TOKEN,
              )
 redis_client = redis.StrictRedis(host=REDIS, decode_responses=True)
 image = ImageCaptcha()
-predefined_str = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
+PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
+IDLE_SECONDS = 5 * 60
 
 
 def generate_char():
-    return "".join([random.choice(predefined_str) for _ in range(4)])
+    return "".join([random.choice(PREDEFINED_STR) for _ in range(4)])
 
 
 @app.on_message(filters.new_chat_members)
-async def hello(client: "Client", message: "types.Message"):
+async def new_chat(client: "Client", message: "types.Message"):
     from_user_id = message.from_user.id
     name = message.from_user.first_name
     await restrict_user(message.chat.id, from_user_id)
@@ -62,7 +64,7 @@ async def hello(client: "Client", message: "types.Message"):
 
     bot_message = await message.reply_photo(data,
                                             caption=f"Hello [{name}](tg://user?id={from_user_id}), "
-                                                    f"please verify by clicking correct buttons",
+                                                    f"please verify by clicking correct buttons in 5 minutes",
                                             reply_markup=markup,
                                             reply_to_message_id=message.id
                                             )
@@ -72,6 +74,7 @@ async def hello(client: "Client", message: "types.Message"):
     redis_client.hset(group_id, message_id, chars)
     # delete service message
     await message.delete()
+    redis_client.hset("queue", f"{group_id},{message_id}", int(time.time()))
 
 
 @app.on_callback_query(filters.regex(r"Approve_.*"))
@@ -90,6 +93,8 @@ async def admin_approve(client: "Client", callback_query: types.CallbackQuery):
     else:
         await callback_query.answer("You are not administrator")
 
+    invalid_queue(f"{chat_id},{callback_query.message.id}")
+
 
 @app.on_callback_query(filters.regex(r"Deny_.*"))
 async def admin_deny(client: "Client", callback_query: types.CallbackQuery):
@@ -106,6 +111,8 @@ async def admin_deny(client: "Client", callback_query: types.CallbackQuery):
         await ban_user(chat_id, join_user_id)
     else:
         await callback_query.answer("You are not administrator")
+
+    invalid_queue(f"{chat_id},{callback_query.message.id}")
 
 
 # TODO broad event listener
@@ -132,6 +139,7 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
 
     redis_client.hdel(group_id, msg_id)
     await callback_query.message.delete()
+    invalid_queue(f"{group_id},{msg_id}")
 
 
 async def restrict_user(gid, uid):
@@ -143,9 +151,9 @@ async def ban_user(gid, uid):
     await _.delete()
 
     # only for dev
-    time.sleep(20)
-    logging.info("Remove user from banning list")
-    await app.unban_chat_member(gid, uid)
+    # time.sleep(10)
+    # logging.info("Remove user from banning list")
+    # await app.unban_chat_member(gid, uid)
 
 
 async def un_restrict_user(gid, uid):
@@ -162,5 +170,25 @@ async def un_restrict_user(gid, uid):
                                    )
 
 
+def invalid_queue(gid_uid):
+    logging.info("Invalidating queue %s", gid_uid)
+    redis_client.hdel("queue", gid_uid)
+
+
+async def check_idle_verification():
+    for gu, ts in redis_client.hgetall("queue").items():
+        if time.time() - int(ts) > IDLE_SECONDS:
+            logging.info("Idle verification for %s", gu)
+            gu_int = [int(i) for i in gu.split(",")]
+            msg = await app.get_messages(*gu_int)
+            target_user = msg.caption_entities[0].user.id
+            await ban_user(gu_int[0], target_user)
+            await msg.delete()
+            invalid_queue(gu)
+
+
 if __name__ == '__main__':
+    scheduler = AsyncIOScheduler()
+    scheduler.add_job(check_idle_verification, 'interval', minutes=1)
+    scheduler.start()
     app.run()
