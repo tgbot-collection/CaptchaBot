@@ -25,7 +25,7 @@ API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 REDIS = os.getenv("REDIS", "localhost")
 app = Client("group", APP_ID, API_HASH, bot_token=BOT_TOKEN,
-             proxy={"scheme": "socks5", "hostname": "127.0.0.1", "port": 1080}
+             proxy={"scheme": "socks5", "hostname": "host.docker.internal", "port": 1080}
              )
 redis_client = redis.StrictRedis(host=REDIS, decode_responses=True)
 image = ImageCaptcha()
@@ -35,6 +35,12 @@ IDLE_SECONDS = 5 * 60
 
 def generate_char():
     return "".join([random.choice(PREDEFINED_STR) for _ in range(4)])
+
+
+@app.on_message(filters.command(["start", "help"]))
+async def start_handler(client: "Client", message: "types.Message"):
+    logging.info("hello!")
+    await message.reply_text("Hello", quote=True)
 
 
 @app.on_message(filters.new_chat_members)
