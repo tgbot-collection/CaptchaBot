@@ -15,9 +15,9 @@ import string
 import time
 
 import redis
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from captcha.image import ImageCaptcha
 from pyrogram import Client, enums, filters, types
-from apscheduler.schedulers.asyncio import AsyncIOScheduler
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 APP_ID = os.getenv("APP_ID")
@@ -40,7 +40,7 @@ def generate_char():
 @app.on_message(filters.command(["start", "help"]))
 async def start_handler(client: "Client", message: "types.Message"):
     logging.info("hello!")
-    await message.reply_text("Hello", quote=True)
+    await message.reply_text("Hello! Add me to a group and make me admin!", quote=True)
 
 
 @app.on_message(filters.new_chat_members)
@@ -144,6 +144,7 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
         await ban_user(group_id, joining_user)
 
     redis_client.hdel(group_id, msg_id)
+    logging.info("Deleting inline button...")
     await callback_query.message.delete()
     invalid_queue(f"{group_id},{msg_id}")
 
@@ -154,12 +155,12 @@ async def restrict_user(gid, uid):
 
 async def ban_user(gid, uid):
     _ = await app.ban_chat_member(gid, uid)
-    await _.delete()
 
     # only for dev
-    # time.sleep(10)
-    # logging.info("Remove user from banning list")
-    # await app.unban_chat_member(gid, uid)
+    if os.uname().nodename == "BennyのMBP":
+        time.sleep(10)
+        logging.info("Remove user from banning list")
+        await app.unban_chat_member(gid, uid)
 
 
 async def un_restrict_user(gid, uid):
