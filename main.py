@@ -27,7 +27,7 @@ REDIS = os.getenv("REDIS", "localhost")
 app = Client("group", APP_ID, API_HASH, bot_token=BOT_TOKEN,
              proxy={"scheme": "socks5", "hostname": "host.docker.internal", "port": 1080}
              )
-redis_client = redis.StrictRedis(host=REDIS, decode_responses=True)
+redis_client = redis.StrictRedis(host=REDIS, decode_responses=True, db=8)
 image = ImageCaptcha()
 PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
 IDLE_SECONDS = 5 * 60
