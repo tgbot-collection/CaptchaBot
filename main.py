@@ -20,12 +20,12 @@ from captcha.image import ImageCaptcha
 from pyrogram import Client, enums, filters, types
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-APP_ID = os.getenv("APP_ID")
+APP_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 REDIS = os.getenv("REDIS", "localhost")
-app = Client("group", APP_ID, API_HASH, bot_token=BOT_TOKEN,
-             proxy={"scheme": "socks5", "hostname": "host.docker.internal", "port": 1080}
+app = Client("captchabot", APP_ID, API_HASH, bot_token=BOT_TOKEN, in_memory=True
+             # proxy={"scheme": "socks5", "hostname": "host.docker.internal", "port": 1080}
              )
 redis_client = redis.StrictRedis(host=REDIS, decode_responses=True, db=8)
 image = ImageCaptcha()

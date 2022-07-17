@@ -7,10 +7,10 @@ services:
     logging:
       driver: none
 
-  ytdl:
-    image: bennythink/joingroup
+  captcha:
+    image: bennythink/captchabot
     env_file:
-      - env/joingroup.env
+      - env/captcha.env
     restart: always
     depends_on:
       - redis
