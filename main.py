@@ -7,6 +7,7 @@
 
 __author__ = "Benny <benny.think@gmail.com>"
 
+import contextlib
 import logging
 import os
 import random
@@ -184,14 +185,20 @@ def invalid_queue(gid_uid):
 
 async def check_idle_verification():
     for gu, ts in redis_client.hgetall("queue").items():
+        time.sleep(random.random())
         if time.time() - int(ts) > IDLE_SECONDS:
             logging.info("Idle verification for %s", gu)
-            gu_int = [int(i) for i in gu.split(",")]
-            msg = await app.get_messages(*gu_int)
-            target_user = msg.caption_entities[0].user.id
-            await ban_user(gu_int[0], target_user)
-            await msg.delete()
-            invalid_queue(gu)
+            with contextlib.suppress(Exception):
+                await delete_captcha(gu)
+
+
+async def delete_captcha(gu):
+    invalid_queue(gu)
+    gu_int = [int(i) for i in gu.split(",")]
+    msg = await app.get_messages(*gu_int)
+    target_user = msg.caption_entities[0].user.id
+    await ban_user(gu_int[0], target_user)
+    await msg.delete()
 
 
 if __name__ == '__main__':
