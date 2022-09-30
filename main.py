@@ -201,6 +201,17 @@ async def delete_captcha(gu):
     await msg.delete()
 
 
+@app.on_message(filters.group)
+async def group_message_handler(client: "Client", message: "types.Message"):
+    blacklist = [int(i) for i in os.getenv("BLACKLIST", "").split(",") if i]
+    sender_id = message.from_user.id
+    forward_id = getattr(message.forward_from_chat, "id", None)
+    if sender_id in blacklist or forward_id in blacklist:
+        logging.info("Sender %s, forward %s is in blacklist", sender_id, forward_id)
+        await message.delete()
+        await ban_user(message.chat.id, sender_id)
+
+
 if __name__ == '__main__':
     scheduler = AsyncIOScheduler()
     scheduler.add_job(check_idle_verification, 'interval', minutes=1)
