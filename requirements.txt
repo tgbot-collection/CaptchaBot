@@ -1,4 +1,4 @@
-pyrogram==2.0.63
+pyrogram==2.0.93
 captcha==0.4
 APScheduler==3.9.1.post1
 tgcrypto==1.2.5
