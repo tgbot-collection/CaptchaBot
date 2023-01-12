@@ -203,10 +203,23 @@ async def delete_captcha(gu):
 
 @app.on_message(filters.group)
 async def group_message_handler(client: "Client", message: "types.Message"):
-    blacklist = [int(i) for i in os.getenv("BLACKLIST", "").split(",") if i]
+    blacklist_id = [int(i) for i in os.getenv("BLACKLIST_ID", "").split(",") if i]
+    blacklist_name = [i for i in os.getenv("BLACKLIST_NAME", "").split(",") if i]
     sender_id = message.from_user.id
     forward_id = getattr(message.forward_from_chat, "id", None)
-    if sender_id in blacklist or forward_id in blacklist:
+    forward_title = getattr(message.forward_from_chat, "title", "")
+    forward_type = getattr(message.forward_from_chat, "type", "")
+    is_ban = False
+
+    for bn in blacklist_name:
+        if bn.lower() in forward_title.lower() and message.document and forward_type == enums.ChatType.CHANNEL:
+            is_ban = True
+            break
+
+    if sender_id in blacklist_id or forward_id in blacklist_id:
+        is_ban = True
+
+    if is_ban:
         logging.info("Sender %s, forward %s is in blacklist", sender_id, forward_id)
         await message.delete()
         await ban_user(message.chat.id, sender_id)
