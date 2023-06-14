@@ -31,11 +31,11 @@ app = Client("captchabot", APP_ID, API_HASH, bot_token=BOT_TOKEN, in_memory=True
 redis_client = redis.StrictRedis(host=REDIS, decode_responses=True, db=8)
 image = ImageCaptcha()
 PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
-IDLE_SECONDS = 5 * 60
+IDLE_SECONDS = 3 * 60
 
 
 def generate_char():
-    return "".join([random.choice(PREDEFINED_STR) for _ in range(4)])
+    return "".join([random.choice(PREDEFINED_STR) for _ in range(5)])
 
 
 @app.on_message(filters.command(["start", "help"]))
@@ -71,7 +71,7 @@ async def new_chat(client: "Client", message: "types.Message"):
 
     bot_message = await message.reply_photo(data,
                                             caption=f"Hello [{name}](tg://user?id={from_user_id}), "
-                                                    f"please verify by clicking correct buttons in 5 minutes",
+                                                    f"please verify by clicking correct buttons in 3 minutes",
                                             reply_markup=markup,
                                             reply_to_message_id=message.id
                                             )
