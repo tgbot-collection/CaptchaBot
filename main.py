@@ -25,9 +25,7 @@ APP_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 REDIS = os.getenv("REDIS", "localhost")
-app = Client("captchabot", APP_ID, API_HASH, bot_token=BOT_TOKEN, in_memory=True
-             # proxy={"scheme": "socks5", "hostname": "host.docker.internal", "port": 1080}
-             )
+app = Client("captchabot", APP_ID, API_HASH, bot_token=BOT_TOKEN)
 redis_client = redis.StrictRedis(host=REDIS, decode_responses=True, db=8)
 image = ImageCaptcha()
 PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
@@ -54,14 +52,18 @@ async def new_chat(client: "Client", message: "types.Message"):
     data.name = f"{message.id}-captcha.png"
 
     user_button = []
-    for _ in range(5):
+    for _ in range(6):
         fake_char = generate_char()
         user_button.append(types.InlineKeyboardButton(text=fake_char, callback_data=f"{fake_char}_{from_user_id}"))
+
     user_button[random.randint(0, len(user_button) - 1)] = \
         types.InlineKeyboardButton(text=chars, callback_data=f"{chars}_{from_user_id}")
+
+    user_button = [user_button[i:i + 3] for i in range(0, len(user_button), 3)]
     markup = types.InlineKeyboardMarkup(
         [
-            user_button,
+            user_button[0],
+            user_button[1],
             [
                 types.InlineKeyboardButton("Approve", callback_data=f"Approve_{from_user_id}"),
                 types.InlineKeyboardButton("Deny", callback_data=f"Deny_{from_user_id}"),
