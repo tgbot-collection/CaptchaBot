@@ -20,7 +20,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from captcha.image import ImageCaptcha
 from pyrogram import Client, enums, filters, types
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 APP_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -29,7 +29,7 @@ app = Client("captchabot", APP_ID, API_HASH, bot_token=BOT_TOKEN)
 redis_client = redis.StrictRedis(host=REDIS, decode_responses=True, db=8)
 image = ImageCaptcha()
 PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
-IDLE_SECONDS = 3 * 60
+IDLE_SECONDS = 2 * 60
 
 
 def generate_char():
@@ -56,10 +56,12 @@ async def new_chat(client: "Client", message: "types.Message"):
         fake_char = generate_char()
         user_button.append(types.InlineKeyboardButton(text=fake_char, callback_data=f"{fake_char}_{from_user_id}"))
 
-    user_button[random.randint(0, len(user_button) - 1)] = \
-        types.InlineKeyboardButton(text=chars, callback_data=f"{chars}_{from_user_id}")
+    user_button[random.randint(0, len(user_button) - 1)] = types.InlineKeyboardButton(
+        text=chars,
+        callback_data=f"{chars}_{from_user_id}",
+    )
 
-    user_button = [user_button[i:i + 3] for i in range(0, len(user_button), 3)]
+    user_button = [user_button[i : i + 3] for i in range(0, len(user_button), 3)]
     markup = types.InlineKeyboardMarkup(
         [
             user_button[0],
@@ -67,16 +69,16 @@ async def new_chat(client: "Client", message: "types.Message"):
             [
                 types.InlineKeyboardButton("Approve", callback_data=f"Approve_{from_user_id}"),
                 types.InlineKeyboardButton("Deny", callback_data=f"Deny_{from_user_id}"),
-            ]
+            ],
         ]
     )
 
-    bot_message = await message.reply_photo(data,
-                                            caption=f"Hello [{name}](tg://user?id={from_user_id}), "
-                                                    f"please verify by clicking correct buttons in 3 minutes",
-                                            reply_markup=markup,
-                                            reply_to_message_id=message.id
-                                            )
+    bot_message = await message.reply_photo(
+        data,
+        caption=f"Hello [{name}](tg://user?id={from_user_id}), " f"please verify by clicking correct buttons in 2 minutes",
+        reply_markup=markup,
+        reply_to_message_id=message.id,
+    )
 
     group_id = message.chat.id
     message_id = bot_message.id
@@ -167,17 +169,20 @@ async def ban_user(gid, uid):
 
 
 async def un_restrict_user(gid, uid):
-    await app.restrict_chat_member(gid, uid,
-                                   types.ChatPermissions(
-                                       can_send_messages=True,
-                                       can_send_media_messages=True,
-                                       can_send_other_messages=True,
-                                       can_send_polls=True,
-                                       can_add_web_page_previews=True,
-                                       can_invite_users=True,
-                                       can_change_info=False,
-                                       can_pin_messages=False)
-                                   )
+    await app.restrict_chat_member(
+        gid,
+        uid,
+        types.ChatPermissions(
+            can_send_messages=True,
+            can_send_media_messages=True,
+            can_send_other_messages=True,
+            can_send_polls=True,
+            can_add_web_page_previews=True,
+            can_invite_users=True,
+            can_change_info=False,
+            can_pin_messages=False,
+        ),
+    )
 
 
 def invalid_queue(gid_uid):
@@ -227,8 +232,8 @@ async def group_message_handler(client: "Client", message: "types.Message"):
         await ban_user(message.chat.id, sender_id)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     scheduler = AsyncIOScheduler()
-    scheduler.add_job(check_idle_verification, 'interval', minutes=1)
+    scheduler.add_job(check_idle_verification, "interval", minutes=1)
     scheduler.start()
     app.run()
