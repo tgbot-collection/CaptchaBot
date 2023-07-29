@@ -44,6 +44,8 @@ async def start_handler(client: "Client", message: "types.Message"):
 
 @app.on_message(filters.new_chat_members)
 async def new_chat(client: "Client", message: "types.Message"):
+    if await group_message_handler(client, message):
+        return
     from_user_id = message.from_user.id
     name = message.from_user.first_name
     await restrict_user(message.chat.id, from_user_id)
@@ -208,7 +210,7 @@ async def delete_captcha(gu):
     await msg.delete()
 
 
-@app.on_message(filters.group)
+@app.on_message(filters.group & ~filters.left_chat_member)
 async def group_message_handler(client: "Client", message: "types.Message"):
     blacklist_id = [int(i) for i in os.getenv("BLACKLIST_ID", "").split(",") if i]
     blacklist_name = [i for i in os.getenv("BLACKLIST_NAME", "").split(",") if i]
@@ -223,13 +225,9 @@ async def group_message_handler(client: "Client", message: "types.Message"):
             is_ban = True
             break
         if (
-            bn.lower() in getattr(message.from_user, "username", "")
-            or bn.lower() in getattr(message.from_user, "first_name", "")
-            or bn.lower() in getattr(message.from_user, "last_name", "")
-            or bn.lower() in getattr(message.chat, "username", "")
-            or bn.lower() in getattr(message.chat, "title", "")
-            or bn.lower() in getattr(message.chat, "first_name", "")
-            or bn.lower() in getattr(message.chat, "last_name", "")
+            bn.lower() in (message.from_user.username or "")
+            or bn.lower() in (message.from_user.first_name or "")
+            or bn.lower() in (message.from_user.last_name or "")
         ):
             is_ban = True
             break
@@ -241,6 +239,7 @@ async def group_message_handler(client: "Client", message: "types.Message"):
         logging.info("Sender %s, forward %s is in blacklist", sender_id, forward_id)
         await message.delete()
         await ban_user(message.chat.id, sender_id)
+    return is_ban
 
 
 if __name__ == "__main__":
