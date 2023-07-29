@@ -21,6 +21,8 @@ from captcha.image import ImageCaptcha
 from pyrogram import Client, enums, filters, types
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+logging.getLogger("apscheduler.executors.default").propagate = False
+
 APP_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
@@ -221,7 +223,7 @@ async def group_message_handler(client: "Client", message: "types.Message"):
     forward_type = getattr(message.forward_from_chat, "type", "")
     is_ban = False
 
-    logging.info("Checking blacklist...")
+    logging.info("Checking blacklist...%s", message)
     for bn in blacklist_name:
         if bn.lower() in forward_title.lower() and message.document and forward_type == enums.ChatType.CHANNEL:
             is_ban = True
