@@ -222,6 +222,17 @@ async def group_message_handler(client: "Client", message: "types.Message"):
         if bn.lower() in forward_title.lower() and message.document and forward_type == enums.ChatType.CHANNEL:
             is_ban = True
             break
+        if (
+            bn.lower() in getattr(message.from_user, "username", "")
+            or bn.lower() in getattr(message.from_user, "first_name", "")
+            or bn.lower() in getattr(message.from_user, "last_name", "")
+            or bn.lower() in getattr(message.chat, "username", "")
+            or bn.lower() in getattr(message.chat, "title", "")
+            or bn.lower() in getattr(message.chat, "first_name", "")
+            or bn.lower() in getattr(message.chat, "last_name", "")
+        ):
+            is_ban = True
+            break
 
     if sender_id in blacklist_id or forward_id in blacklist_id:
         is_ban = True
