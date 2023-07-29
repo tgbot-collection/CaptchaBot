@@ -138,3 +138,4 @@ dmypy.json
 /.idea/.gitignore
 /.idea/CaptchaBot.iml
 /captchabot.session
+/captchabot.session-journal

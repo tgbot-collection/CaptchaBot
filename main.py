@@ -44,6 +44,7 @@ async def start_handler(client: "Client", message: "types.Message"):
 
 @app.on_message(filters.new_chat_members)
 async def new_chat(client: "Client", message: "types.Message"):
+    logging.info("new chat member: %s", message.from_user)
     if await group_message_handler(client, message):
         return
     from_user_id = message.from_user.id
@@ -220,6 +221,7 @@ async def group_message_handler(client: "Client", message: "types.Message"):
     forward_type = getattr(message.forward_from_chat, "type", "")
     is_ban = False
 
+    logging.info("Checking blacklist...")
     for bn in blacklist_name:
         if bn.lower() in forward_title.lower() and message.document and forward_type == enums.ChatType.CHANNEL:
             is_ban = True
