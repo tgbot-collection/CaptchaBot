@@ -223,7 +223,7 @@ async def group_message_handler(client: "Client", message: "types.Message"):
     forward_type = getattr(message.forward_from_chat, "type", "")
     is_ban = False
 
-    logging.info("Checking blacklist...%s", message)
+    logging.info("Checking blacklist...")
     for bn in blacklist_name:
         if bn.lower() in forward_title.lower() and message.document and forward_type == enums.ChatType.CHANNEL:
             is_ban = True
