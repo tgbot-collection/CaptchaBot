@@ -40,7 +40,7 @@ def generate_char():
 
 @app.on_message(filters.command(["start", "help"]))
 async def start_handler(client: "Client", message: "types.Message"):
-    logging.info("hello!")
+    logging.info("Welcome to Captcha Bot")
     await message.reply_text("Hello! Add me to a group and make me admin!", quote=True)
 
 
@@ -59,28 +59,37 @@ async def new_chat(client: "Client", message: "types.Message"):
     user_button = []
     for _ in range(6):
         fake_char = generate_char()
-        user_button.append(types.InlineKeyboardButton(text=fake_char, callback_data=f"{fake_char}_{from_user_id}"))
+        user_button.append(
+            types.InlineKeyboardButton(
+                text=fake_char, callback_data=f"{fake_char}_{from_user_id}"
+            )
+        )
 
     user_button[random.randint(0, len(user_button) - 1)] = types.InlineKeyboardButton(
         text=chars,
         callback_data=f"{chars}_{from_user_id}",
     )
 
-    user_button = [user_button[i : i + 3] for i in range(0, len(user_button), 3)]
+    user_button = [user_button[i: i + 3] for i in range(0, len(user_button), 3)]
     markup = types.InlineKeyboardMarkup(
         [
             user_button[0],
             user_button[1],
             [
-                types.InlineKeyboardButton("Approve", callback_data=f"Approve_{from_user_id}"),
-                types.InlineKeyboardButton("Deny", callback_data=f"Deny_{from_user_id}"),
+                types.InlineKeyboardButton(
+                    "Approve", callback_data=f"Approve_{from_user_id}"
+                ),
+                types.InlineKeyboardButton(
+                    "Deny", callback_data=f"Deny_{from_user_id}"
+                ),
             ],
         ]
     )
 
     bot_message = await message.reply_photo(
         data,
-        caption=f"Hello [{name}](tg://user?id={from_user_id}), " f"please verify by clicking correct buttons in 2 minutes",
+        caption=f"Hello [{name}](tg://user?id={from_user_id}), "
+                f"please verify by clicking correct buttons in 2 minutes",
         reply_markup=markup,
         reply_to_message_id=message.id,
     )
@@ -100,7 +109,9 @@ async def admin_approve(client: "Client", callback_query: types.CallbackQuery):
     join_user_id = callback_query.data.split("_")[1]
     # Get administrators
     administrators = []
-    async for m in app.get_chat_members(chat_id, filter=enums.ChatMembersFilter.ADMINISTRATORS):
+    async for m in app.get_chat_members(
+            chat_id, filter=enums.ChatMembersFilter.ADMINISTRATORS
+    ):
         administrators.append(m.user.id)
     if from_user_id in administrators:
         await callback_query.answer("Approved")
@@ -119,7 +130,9 @@ async def admin_deny(client: "Client", callback_query: types.CallbackQuery):
     join_user_id = callback_query.data.split("_")[1]
 
     administrators = []
-    async for m in app.get_chat_members(chat_id, filter=enums.ChatMembersFilter.ADMINISTRATORS):
+    async for m in app.get_chat_members(
+            chat_id, filter=enums.ChatMembersFilter.ADMINISTRATORS
+    ):
         administrators.append(m.user.id)
     if from_user_id in administrators:
         await callback_query.answer("Denied")
@@ -144,7 +157,12 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
     msg_id = callback_query.message.id
     correct_result = redis_client.hget(group_id, msg_id)
     user_result = callback_query.data.split("_")[0]
-    logging.info("User %s click %s, correct answer is %s", click_user, user_result, correct_result)
+    logging.info(
+        "User %s click %s, correct answer is %s",
+        click_user,
+        user_result,
+        correct_result,
+    )
 
     if user_result == correct_result:
         await callback_query.answer("Welcome!")
@@ -224,14 +242,20 @@ async def group_message_handler(client: "Client", message: "types.Message"):
     is_ban = False
 
     logging.info("Checking blacklist...")
+    if message.from_user.emoji_status.custom_emoji_id == "5109819404909019795":
+        is_ban = True
     for bn in blacklist_name:
-        if bn.lower() in forward_title.lower() and message.document and forward_type == enums.ChatType.CHANNEL:
+        if (
+                bn.lower() in forward_title.lower()
+                and message.document
+                and forward_type == enums.ChatType.CHANNEL
+        ):
             is_ban = True
             break
         if (
-            bn.lower() in (message.from_user.username or "")
-            or bn.lower() in (message.from_user.first_name or "")
-            or bn.lower() in (message.from_user.last_name or "")
+                bn.lower() in (message.from_user.username or "")
+                or bn.lower() in (message.from_user.first_name or "")
+                or bn.lower() in (message.from_user.last_name or "")
         ):
             is_ban = True
             break
