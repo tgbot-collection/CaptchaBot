@@ -242,7 +242,7 @@ async def group_message_handler(client: "Client", message: "types.Message"):
     is_ban = False
 
     logging.info("Checking blacklist...")
-    if message.from_user.emoji_status.custom_emoji_id == "5109819404909019795":
+    if getattr(message.from_user.emoji_status, "custom_emoji_id", None) == "5109819404909019795":
         is_ban = True
     for bn in blacklist_name:
         if (
