@@ -45,6 +45,7 @@ async def start_handler(client: "Client", message: "types.Message"):
 async def new_chat(client: "Client", message: "types.Message"):
     logging.info("new chat member: %s", message.from_user)
     if await group_message_handler(client, message):
+        # bad user ban directly
         return
     from_user_id = message.from_user.id
     name = message.from_user.first_name
@@ -216,19 +217,26 @@ async def delete_captcha(gu):
     await msg.delete()
 
 
-@app.on_message(filters.group & ~filters.left_chat_member)
+@app.on_message(filters.group & filters.incoming)
 async def group_message_handler(client: "Client", message: "types.Message"):
     blacklist_id = [int(i) for i in os.getenv("BLACKLIST_ID", "").split(",") if i]
     blacklist_name = [i for i in os.getenv("BLACKLIST_NAME", "").split(",") if i]
+    blacklist_emoji = [i for i in os.getenv("BLACKLIST_EMOJI", "").split(",") if i]
     sender_id = message.from_user.id
     forward_id = getattr(message.forward_from_chat, "id", None)
     forward_title = getattr(message.forward_from_chat, "title", "")
     forward_type = getattr(message.forward_from_chat, "type", "")
     is_ban = False
 
-    logging.info("Checking blacklist...")
-    if getattr(message.from_user.emoji_status, "custom_emoji_id", None) == "5109819404909019795":
+    logging.info("Checking blacklist emojis...")
+    emoji_id = getattr(message.from_user.emoji_status, "custom_emoji_id", None)
+    emoji_set = None
+    if emoji_id:
+        emoji_set = await app.get_custom_emoji_stickers([emoji_id])
+    if emoji_set and emoji_set[0].set_name in blacklist_emoji:
         is_ban = True
+
+    logging.info("Checking black list names...")
     for bn in blacklist_name:
         if bn.lower() in forward_title.lower() and message.document and forward_type == enums.ChatType.CHANNEL:
             is_ban = True
@@ -241,6 +249,7 @@ async def group_message_handler(client: "Client", message: "types.Message"):
             is_ban = True
             break
 
+    logging.info("Checking blacklist forward ids...")
     if sender_id in blacklist_id or forward_id in blacklist_id:
         is_ban = True
 
@@ -248,6 +257,8 @@ async def group_message_handler(client: "Client", message: "types.Message"):
         logging.info("Sender %s, forward %s is in blacklist", sender_id, forward_id)
         await message.delete()
         await ban_user(message.chat.id, sender_id)
+    else:
+        logging.info("%s is good user in group %s", sender_id, message.chat.id)
     return is_ban
 
 
