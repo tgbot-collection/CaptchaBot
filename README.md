@@ -1,4 +1,4 @@
-# JoinGroup
+# Captcha Bot
 
 Captcha challenge for group.
 
