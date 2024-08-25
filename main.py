@@ -86,10 +86,10 @@ async def new_chat(client: "Client", message: "types.Message"):
 
     group_id = message.chat.id
     message_id = bot_message.id
-    await redis_client.hset(str(group_id), str(message_id), chars)
+    redis_client.hset(str(group_id), str(message_id), chars)
     # delete service message
     await message.delete()
-    await redis_client.hset("queue", f"{group_id},{message_id}", str(time.time()))
+    redis_client.hset("queue", f"{group_id},{message_id}", str(time.time()))
 
 
 @app.on_callback_query(filters.regex(r"Approve_.*"))
@@ -141,7 +141,7 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
 
     group_id = callback_query.message.chat.id
     msg_id = callback_query.message.id
-    correct_result = await redis_client.hget(str(group_id), str(msg_id))
+    correct_result = redis_client.hget(str(group_id), str(msg_id))
     user_result = callback_query.data.split("_")[0]
     logging.info(
         "User %s click %s, correct answer is %s",
@@ -157,7 +157,7 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
         await callback_query.answer("Wrong answer")
         await ban_user(group_id, joining_user)
 
-    await redis_client.hdel(str(group_id), str(msg_id))
+    redis_client.hdel(str(group_id), str(msg_id))
     logging.info("Deleting inline button...")
     await callback_query.message.delete()
     invalid_queue(f"{group_id},{msg_id}")
