@@ -202,7 +202,7 @@ def invalid_queue(gid_uid):
 async def check_idle_verification():
     for gu, ts in redis_client.hgetall("queue").items():
         time.sleep(random.random())
-        if time.time() - int(ts) > IDLE_SECONDS:
+        if time.time() - float(ts) > IDLE_SECONDS:
             logging.info("Idle verification for %s", gu)
             with contextlib.suppress(Exception):
                 await delete_captcha(gu)
