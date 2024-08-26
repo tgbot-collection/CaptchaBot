@@ -1,5 +1,5 @@
 pyrogram==2.0.106
-captcha==0.5.0
+captcha==0.6.0
 APScheduler==3.10.4
 tgcrypto==1.2.5
 redis==5.0.4
