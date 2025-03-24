@@ -214,6 +214,7 @@ async def delete_captcha(gu):
     msg = await app.get_messages(*gu_int)
     target_user = msg.caption_entities[0].user.id
     await ban_user(gu_int[0], target_user)
+    logging.info("deleting message %s", msg)
     await msg.delete()
 
 
@@ -222,7 +223,7 @@ async def group_message_handler(client: "Client", message: "types.Message"):
     blacklist_id = [int(i) for i in os.getenv("BLACKLIST_ID", "").split(",") if i]
     blacklist_name = [i for i in os.getenv("BLACKLIST_NAME", "").split(",") if i]
     blacklist_emoji = [i for i in os.getenv("BLACKLIST_EMOJI", "").split(",") if i]
-    sender_id = message.from_user.id
+    sender_id = getattr(message.from_user, "id", None) or getattr(message.chat, "id", None)
     forward_id = getattr(message.forward_from_chat, "id", None)
     forward_title = getattr(message.forward_from_chat, "title", "")
     forward_type = getattr(message.forward_from_chat, "type", "")
