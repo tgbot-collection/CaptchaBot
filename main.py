@@ -12,7 +12,8 @@ import re
 import string
 import time
 
-import redis
+
+import redis.asyncio as aioredis
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from captcha.image import ImageCaptcha
 from pyrogram import Client, enums, filters, types
@@ -25,7 +26,7 @@ API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 REDIS = os.getenv("REDIS", "localhost")
 app = Client("captchabot", APP_ID, API_HASH, bot_token=BOT_TOKEN)
-redis_client = redis.StrictRedis(host=REDIS, decode_responses=True, db=8)
+redis_client = aioredis.StrictRedis(host=REDIS, decode_responses=True, db=8)
 image = ImageCaptcha()
 PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
 IDLE_SECONDS = 2 * 60
@@ -86,10 +87,10 @@ async def new_chat(client: "Client", message: "types.Message"):
 
     group_id = message.chat.id
     message_id = bot_message.id
-    redis_client.hset(str(group_id), str(message_id), chars)
+    await redis_client.hset(str(group_id), str(message_id), chars)
     # delete service message
     await message.delete()
-    redis_client.hset("queue", f"{group_id},{message_id}", str(time.time()))
+    await redis_client.hset("queue", f"{group_id},{message_id}", str(time.time()))
 
 
 @app.on_callback_query(filters.regex(r"Approve_.*"))
@@ -157,7 +158,7 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
         await callback_query.answer("Wrong answer")
         await ban_user(group_id, joining_user)
 
-    redis_client.hdel(str(group_id), str(msg_id))
+    await redis_client.hdel(str(group_id), str(msg_id))
     logging.info("Deleting inline button...")
     await callback_query.message.delete()
     invalid_queue(f"{group_id},{msg_id}")

@@ -1,6 +1,6 @@
-git+https://github.com/KurimuzonAkuma/pyrogram@66f8ad4a65a7572309074c889f9ffd78c38f503d
+kurigram==2.2.6
 captcha==0.6.0
 APScheduler==3.10.4
 tgcrypto==1.2.5
-redis==5.2.0
+redis==6.2.0
 pillow==11.0.0
