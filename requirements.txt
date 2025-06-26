@@ -1,5 +1,5 @@
 kurigram==2.2.6
-captcha==0.6.0
+captcha==0.7.1
 APScheduler==3.10.4
 tgcrypto==1.2.5
 redis==6.2.0
