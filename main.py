@@ -30,6 +30,7 @@ redis_client = aioredis.StrictRedis(host=REDIS, decode_responses=True, db=8)
 image = ImageCaptcha()
 PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
 IDLE_SECONDS = 2 * 60
+scheduler = AsyncIOScheduler()
 
 
 def generate_char():
@@ -264,8 +265,12 @@ async def group_message_handler(client: "Client", message: "types.Message"):
     return is_ban
 
 
-if __name__ == "__main__":
-    scheduler = AsyncIOScheduler()
+@app.on_start()
+async def startup(client):
     scheduler.add_job(check_idle_verification, "interval", minutes=1)
     scheduler.start()
+    logging.info("Scheduler started!")
+
+
+if __name__ == "__main__":
     app.run()
