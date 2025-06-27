@@ -109,7 +109,7 @@ async def admin_approve(client: "Client", callback_query: types.CallbackQuery):
     else:
         await callback_query.answer("You are not administrator")
 
-    invalid_queue(f"{chat_id},{callback_query.message.id}")
+    await invalid_queue(f"{chat_id},{callback_query.message.id}")
 
 
 @app.on_callback_query(filters.regex(r"Deny_.*"))
@@ -128,7 +128,7 @@ async def admin_deny(client: "Client", callback_query: types.CallbackQuery):
     else:
         await callback_query.answer("You are not administrator")
 
-    invalid_queue(f"{chat_id},{callback_query.message.id}")
+    await invalid_queue(f"{chat_id},{callback_query.message.id}")
 
 
 # TODO broad event listener
@@ -142,7 +142,7 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
 
     group_id = callback_query.message.chat.id
     msg_id = callback_query.message.id
-    correct_result = redis_client.hget(str(group_id), str(msg_id))
+    correct_result = await redis_client.hget(str(group_id), str(msg_id))
     user_result = callback_query.data.split("_")[0]
     logging.info(
         "User %s click %s, correct answer is %s",
@@ -161,7 +161,7 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
     await redis_client.hdel(str(group_id), str(msg_id))
     logging.info("Deleting inline button...")
     await callback_query.message.delete()
-    invalid_queue(f"{group_id},{msg_id}")
+    await invalid_queue(f"{group_id},{msg_id}")
 
 
 async def restrict_user(gid, uid):
@@ -195,13 +195,13 @@ async def un_restrict_user(gid, uid):
     )
 
 
-def invalid_queue(gid_uid):
+async def invalid_queue(gid_uid):
     logging.info("Invalidating queue %s", gid_uid)
-    redis_client.hdel("queue", gid_uid)
+    await redis_client.hdel("queue", gid_uid)
 
 
 async def check_idle_verification():
-    for gu, ts in redis_client.hgetall("queue").items():
+    for gu, ts in (await redis_client.hgetall("queue")).items():
         time.sleep(random.random())
         if time.time() - float(ts) > IDLE_SECONDS:
             logging.info("Idle verification for %s", gu)
@@ -210,7 +210,7 @@ async def check_idle_verification():
 
 
 async def delete_captcha(gu):
-    invalid_queue(gu)
+    await invalid_queue(gu)
     gu_int = [int(i) for i in gu.split(",")]
     msg = await app.get_messages(*gu_int)
     target_user = msg.caption_entities[0].user.id
