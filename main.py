@@ -216,7 +216,7 @@ async def delete_captcha(gu):
     msg = await app.get_messages(*gu_int)
     target_user = msg.caption_entities[0].user.id
     await ban_user(gu_int[0], target_user)
-    logging.info("deleting message %s", msg)
+    # logging.info("deleting message %s", msg)
     await msg.delete()
 
 
@@ -261,7 +261,7 @@ async def group_message_handler(client: "Client", message: "types.Message"):
         await message.delete()
         await ban_user(message.chat.id, sender_id)
     else:
-        logging.info("%s is good user in group %s", sender_id, message.chat.id)
+        logging.info("✅%s:%s, detail: %s-%s", sender_id, message.chat.id, message.from_user, message.chat)
     return is_ban
 
 
