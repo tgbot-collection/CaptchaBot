@@ -230,7 +230,14 @@ async def group_message_handler(client: "Client", message: "types.Message"):
     forward_id = getattr(message.forward_from_chat, "id", None)
     forward_title = getattr(message.forward_from_chat, "title", "")
     forward_type = getattr(message.forward_from_chat, "type", "")
+    user_message = message.text or ""
     is_ban = False
+
+    if message.via_bot or message.reply_markup or user_message.startswith("https://t.me/+"):
+        await message.delete()
+        logging.warning("potential spam message detected, deleting...")
+        # just delete the message
+        return True
 
     logging.info("Checking blacklist emojis...")
     emoji_id = getattr(message.from_user.emoji_status, "custom_emoji_id", None)
