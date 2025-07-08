@@ -77,13 +77,12 @@ async def new_chat(client: "Client", message: "types.Message"):
             ],
         ]
     )
-
-    bot_message = await message.reply_photo(
-        data,
+    bot_message = await client.send_photo(
+        chat_id=message.chat.id,
+        photo=data,
         caption=f"Hello [{name}](tg://user?id={from_user_id}), "
         f"please verify by clicking correct buttons in 2 minutes",
         reply_markup=markup,
-        reply_to_message_id=message.id,
     )
 
     group_id = message.chat.id
@@ -173,7 +172,7 @@ async def ban_user(gid, uid):
     _ = await app.ban_chat_member(gid, uid)
 
     # only for dev
-    if os.uname().nodename == "BennyのMBP":
+    if os.getenv("MODE") == "dev":
         time.sleep(10)
         logging.info("Remove user from banning list")
         await app.unban_chat_member(gid, uid)
@@ -202,12 +201,14 @@ async def invalid_queue(gid_uid):
 
 
 async def check_idle_verification():
-    for gu, ts in (await redis_client.hgetall("queue")).items():
+    for group_id, ts in (await redis_client.hgetall("queue")).items():
         time.sleep(random.random())
         if time.time() - float(ts) > IDLE_SECONDS:
-            logging.info("Idle verification for %s", gu)
-            with contextlib.suppress(Exception):
-                await delete_captcha(gu)
+            logging.info("Idle verification for %s", group_id)
+            try:
+                await delete_captcha(group_id)
+            except:
+                logging.error("error in deleting captcha %s", group_id, exc_info=True)
 
 
 async def delete_captcha(gu):
@@ -215,9 +216,9 @@ async def delete_captcha(gu):
     gu_int = [int(i) for i in gu.split(",")]
     msg = await app.get_messages(*gu_int)
     target_user = msg.caption_entities[0].user.id
-    await ban_user(gu_int[0], target_user)
-    # logging.info("deleting message %s", msg)
     await msg.delete()
+    logging.info("message deleted.")
+    await ban_user(gu_int[0], target_user)
 
 
 @app.on_message(filters.group & filters.incoming)
@@ -261,7 +262,7 @@ async def group_message_handler(client: "Client", message: "types.Message"):
         await message.delete()
         await ban_user(message.chat.id, sender_id)
     else:
-        logging.info("✅%s:%s, detail: %s-%s", sender_id, message.chat.id, message.from_user, message.chat)
+        logging.info("Good user")
     return is_ban
 
 
