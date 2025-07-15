@@ -3,5 +3,5 @@ captcha==0.7.1
 APScheduler==3.11.0
 tgcrypto==1.2.5
 redis==6.2.0
-pillow==11.2.1
+pillow==11.3.0
 retry==0.9.2
