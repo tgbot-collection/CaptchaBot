@@ -12,11 +12,12 @@ import re
 import string
 import time
 
-
 import redis.asyncio as aioredis
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from captcha.image import ImageCaptcha
 from pyrogram import Client, enums, filters, types
+from pyrogram.errors.exceptions.forbidden_403 import ChatAdminRequired
+from retry import retry
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logging.getLogger("apscheduler.executors.default").propagate = False
@@ -144,12 +145,7 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
     msg_id = callback_query.message.id
     correct_result = await redis_client.hget(str(group_id), str(msg_id))
     user_result = callback_query.data.split("_")[0]
-    logging.info(
-        "User %s click %s, correct answer is %s",
-        click_user,
-        user_result,
-        correct_result,
-    )
+    logging.info("User %s click %s, correct answer:%s", click_user, user_result, correct_result)
 
     if user_result == correct_result:
         await callback_query.answer("Welcome!")
@@ -165,7 +161,11 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
 
 
 async def restrict_user(gid, uid):
-    await app.restrict_chat_member(gid, uid, types.ChatPermissions())
+    # this method may throw an error if bot is not admin, so we just ignore it
+    try:
+        await app.restrict_chat_member(gid, uid, types.ChatPermissions())
+    except ChatAdminRequired:
+        logging.error("Bot is not admin in group %s, cannot restrict user %s", gid, uid)
 
 
 async def ban_user(gid, uid):
@@ -211,6 +211,7 @@ async def check_idle_verification():
                 logging.error("error in deleting captcha %s", group_id, exc_info=True)
 
 
+@retry(tries=3, delay=2)
 async def delete_captcha(gu):
     await invalid_queue(gu)
     gu_int = [int(i) for i in gu.split(",")]
@@ -235,27 +236,33 @@ async def group_message_handler(client: "Client", message: "types.Message"):
 
     if message.via_bot or message.reply_markup or user_message.startswith("https://t.me/+"):
         await message.delete()
-        logging.warning("potential spam message detected, deleting...")
+        logging.warning("potential spam message detected: %s", user_message)
         # just delete the message
         return True
 
-    logging.info("Checking blacklist emojis...")
-    emoji_id = getattr(message.from_user.emoji_status, "custom_emoji_id", None)
+    try:
+        logging.info("Checking blacklist emojis...")
+        # don't know why from_user cound be None
+        # captcha-1  |     emoji_id = getattr(message.from_user.emoji_status, "custom_emoji_id", None)
+        # captcha-1  | AttributeError: 'NoneType' object has no attribute 'emoji_status'
+        emoji_id = getattr(message.from_user.emoji_status, "custom_emoji_id", None)
+    except AttributeError:
+        emoji_id = None
     emoji_set = None
     if emoji_id:
         emoji_set = await app.get_custom_emoji_stickers([emoji_id])
     if emoji_set and emoji_set[0].set_name in blacklist_emoji:
         is_ban = True
 
-    logging.info("Checking black list names...")
+    logging.info("Checking blacklist names...")
     for bn in blacklist_name:
         if bn.lower() in forward_title.lower() and message.document and forward_type == enums.ChatType.CHANNEL:
             is_ban = True
             break
         if (
-            bn.lower() in (message.from_user.username or "")
-            or bn.lower() in (message.from_user.first_name or "")
-            or bn.lower() in (message.from_user.last_name or "")
+            bn.lower() in (message.from_user.username or "").lower()
+            or bn.lower() in (message.from_user.first_name or "").lower()
+            or bn.lower() in (message.from_user.last_name or "").lower()
         ):
             is_ban = True
             break
