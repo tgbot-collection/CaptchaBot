@@ -227,14 +227,23 @@ async def group_message_handler(client: "Client", message: "types.Message"):
     blacklist_id = [int(i) for i in os.getenv("BLACKLIST_ID", "").split(",") if i]
     blacklist_name = [i for i in os.getenv("BLACKLIST_NAME", "").split(",") if i]
     blacklist_emoji = [i for i in os.getenv("BLACKLIST_EMOJI", "").split(",") if i]
+    blacklist_sticker = [i for i in os.getenv("BLACKLIST_STICKER", "").split(",") if i]
     sender_id = getattr(message.from_user, "id", None) or getattr(message.chat, "id", None)
     forward_id = getattr(message.forward_from_chat, "id", None)
     forward_title = getattr(message.forward_from_chat, "title", "")
     forward_type = getattr(message.forward_from_chat, "type", "")
     user_message = message.text or ""
+    user_sticker = None
+    if message.sticker:
+        user_sticker = message.sticker.set_name
     is_ban = False
 
-    if message.via_bot or message.reply_markup or user_message.startswith("https://t.me/+"):
+    if (
+        message.via_bot
+        or message.reply_markup
+        or user_message.startswith("https://t.me/+")
+        or user_sticker in blacklist_sticker
+    ):
         await message.delete()
         logging.warning("potential spam message detected: %s", user_message)
         # just delete the message
