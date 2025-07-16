@@ -196,7 +196,6 @@ async def un_restrict_user(gid, uid):
 
 
 async def invalid_queue(gid_uid):
-    logging.info("Invalidating queue %s", gid_uid)
     await redis_client.hdel("queue", gid_uid)
 
 
@@ -216,6 +215,7 @@ async def delete_captcha(gu):
     await invalid_queue(gu)
     gu_int = [int(i) for i in gu.split(",")]
     msg = await app.get_messages(*gu_int)
+    logging.info("message to be deleted: %s", msg)
     target_user = msg.caption_entities[0].user.id
     await msg.delete()
     logging.info("message deleted.")
