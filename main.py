@@ -216,9 +216,8 @@ async def delete_captcha(gu):
     gu_int = [int(i) for i in gu.split(",")]
     msg = await app.get_messages(*gu_int)
     logging.info("message to be deleted: %s", msg)
-    target_user = msg.caption_entities[0].user.id
     await msg.delete()
-    logging.info("message deleted.")
+    target_user = msg.caption_entities[0].user.id
     await ban_user(gu_int[0], target_user)
 
 
