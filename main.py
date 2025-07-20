@@ -47,9 +47,6 @@ async def start_handler(client: "Client", message: "types.Message"):
 @app.on_message(filters.new_chat_members)  # only service message
 async def new_chat(client: "Client", message: "types.Message"):
     logging.info("new chat member: %s", message.from_user)
-    if await group_message_preprocess(client, message):
-        # bad user ban directly, no other action at all
-        return
 
     from_user_id = message.from_user.id
     name = message.from_user.first_name
@@ -227,14 +224,10 @@ async def delete_captcha(gu):
     await ban_user(gu_int[0], target_user)
 
 
-@app.on_message(filters.group & filters.incoming)  # only group incoming message
-@app.on_edited_message(filters.group & filters.incoming)
+# only group incoming message, ignore service message
+@app.on_message(filters.group & filters.incoming & ~filters.service)
+@app.on_edited_message(filters.group & filters.incoming & ~filters.service)
 async def group_message_preprocess(client: "Client", message: "types.Message"):
-    # message could also be: service message, ignore if it's not new chat members
-    if message.service != enums.MessageServiceType.NEW_CHAT_MEMBERS:
-        logging.warning("not new chat member message")
-        return True
-
     blacklist_id = [int(i) for i in os.getenv("BLACKLIST_ID", "").split(",") if i]
     blacklist_name = [i for i in os.getenv("BLACKLIST_NAME", "").split(",") if i]
     blacklist_emoji = [i for i in os.getenv("BLACKLIST_EMOJI", "").split(",") if i]
@@ -263,7 +256,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
         return True
 
     for msg in blacklist_message:
-        if msg in user_message:
+        if msg.lower() in user_message.lower():
             await message.delete()
             return True
 
@@ -302,7 +295,8 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
         logging.info("prepress bad user: %s", sender_id)
         await message.delete()
         await ban_user(message.chat.id, sender_id)
-
+    else:
+        logging.info("Good user and message: %s", sender_id)
     return is_ban
 
 
