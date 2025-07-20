@@ -1,4 +1,4 @@
-kurigram==2.2.6
+kurigram==2.2.7
 captcha==0.7.1
 APScheduler==3.11.0
 tgcrypto==1.2.5
