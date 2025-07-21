@@ -31,7 +31,7 @@ app = Client("captchabot", APP_ID, API_HASH, bot_token=BOT_TOKEN)
 redis_client = aioredis.StrictRedis(host=REDIS, decode_responses=True, db=8)
 image = ImageCaptcha()
 PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
-IDLE_SECONDS = 1 * 60
+IDLE_SECONDS = 2 * 60
 scheduler = AsyncIOScheduler()
 
 
@@ -48,6 +48,8 @@ async def start_handler(client: "Client", message: "types.Message"):
 @app.on_message(filters.new_chat_members)  # only service message
 async def new_chat(client: "Client", message: "types.Message"):
     logging.info("new chat member: %s", message.from_user)
+    if await group_message_preprocess(client, message):
+        return
 
     from_user_id = message.from_user.id
     name = message.from_user.first_name
@@ -210,7 +212,6 @@ async def check_idle_verification():
 
 
 async def delete_captcha(gu):
-    await invalid_queue(gu)
     gu_int = [int(i) for i in gu.split(",")]
     msg = await app.get_messages(*gu_int)
     logging.info("message to be deleted: %s", msg)
@@ -222,6 +223,7 @@ async def delete_captcha(gu):
         await msg.delete()
     target_user = msg.caption_entities[0].user.id
     await ban_user(gu_int[0], target_user)
+    await invalid_queue(gu)
 
 
 def keyword_hit(keyword: str, message: str | None) -> bool:
