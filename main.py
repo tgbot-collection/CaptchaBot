@@ -4,7 +4,6 @@
 
 __author__ = "Benny <benny.think@gmail.com>"
 
-import contextlib
 import logging
 import os
 import random
@@ -17,7 +16,9 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from captcha.image import ImageCaptcha
 from pyrogram import Client, enums, filters, types
 from pyrogram.errors.exceptions.forbidden_403 import ChatAdminRequired
-from retry import retry
+from pyrogram.raw import functions as raw_functions
+from pyrogram.raw import types as raw_types
+from zhconv import convert
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logging.getLogger("apscheduler.executors.default").propagate = False
@@ -208,7 +209,6 @@ async def check_idle_verification():
                 logging.error("error in deleting captcha %s", group_id, exc_info=True)
 
 
-@retry(tries=3, delay=2)
 async def delete_captcha(gu):
     await invalid_queue(gu)
     gu_int = [int(i) for i in gu.split(",")]
@@ -222,6 +222,12 @@ async def delete_captcha(gu):
         await msg.delete()
     target_user = msg.caption_entities[0].user.id
     await ban_user(gu_int[0], target_user)
+
+
+def keyword_hit(keyword: str, message: str | None) -> bool:
+    if message is None:
+        message = ""
+    return keyword.lower() in convert(message.lower(), "zh-cn")
 
 
 # only group incoming message, ignore service message
@@ -243,6 +249,16 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
     is_ban = False
     if message.sticker:
         user_sticker = message.sticker.set_name
+        sticker_set = await app.invoke(
+            raw_functions.messages.GetStickerSet(
+                stickerset=raw_types.InputStickerSetShortName(short_name=message.sticker.set_name),
+                hash=0,
+            )
+        )
+        if len(sticker_set.packs) == 1 or "点击直达" in sticker_set.set.title:
+            logging.info("spam sticker detected:%s", sender_id)
+            await message.delete()
+            return True
 
     if (
         message.via_bot
@@ -256,7 +272,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
         return True
 
     for msg in blacklist_message:
-        if msg.lower() in user_message.lower():
+        if keyword_hit(msg, user_message):
             await message.delete()
             return True
 
@@ -276,13 +292,13 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
 
     logging.info("Checking blacklist names...")
     for name in blacklist_name:
-        if name.lower() in forward_title.lower() and message.document and forward_type == enums.ChatType.CHANNEL:
+        if keyword_hit(name, forward_title) and message.document and forward_type == enums.ChatType.CHANNEL:
             is_ban = True
             break
         if (
-            name.lower() in (message.from_user.username or "").lower()
-            or name.lower() in (message.from_user.first_name or "").lower()
-            or name.lower() in (message.from_user.last_name or "").lower()
+            keyword_hit(name, message.from_user.username)
+            or keyword_hit(name, message.from_user.first_name)
+            or keyword_hit(name, message.from_user.last_name)
         ):
             is_ban = True
             break
