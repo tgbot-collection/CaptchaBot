@@ -311,9 +311,9 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
             is_ban = True
             break
         if (
-            keyword_hit(name, message.from_user.username)
-            or keyword_hit(name, message.from_user.first_name)
-            or keyword_hit(name, message.from_user.last_name)
+            keyword_hit(name, getattr(message.from_user, "username", ""))
+            or keyword_hit(name, getattr(message.from_user, "first_name", ""))
+            or keyword_hit(name, getattr(message.from_user, "last_name", ""))
         ):
             is_ban = True
             break
