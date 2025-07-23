@@ -4,6 +4,7 @@
 
 __author__ = "Benny <benny.think@gmail.com>"
 
+import contextlib
 import logging
 import os
 import random
@@ -214,16 +215,28 @@ async def check_idle_verification():
 async def delete_captcha(gu):
     gu_int = [int(i) for i in gu.split(",")]
     msg = await app.get_messages(*gu_int)
-    logging.info("message to be deleted: %s", msg)
-    if isinstance(msg, list):
-        logging.info("multiple messages")
-        for m in msg:
-            await m.delete()
-    else:
+    # captcha-1  | 2025-07-23 21:07:32,595 - root - INFO - message to be deleted: {
+    # captcha-1  |     "_": "Message",
+    # captcha-1  |     "id": 293901,
+    # captcha-1  |     "empty": true
+    # captcha-1  | }
+    # captcha-1  | 2025-07-23 21:07:32,595 - root - ERROR - error in deleting captcha -1001139287285,293901
+    # captcha-1  | Traceback (most recent call last):
+    # captcha-1  |   File "/CaptchaBot/main.py", line 209, in check_idle_verification
+    # captcha-1  |     await delete_captcha(group_id)
+    # captcha-1  |   File "/CaptchaBot/main.py", line 223, in delete_captcha
+    # captcha-1  |     await msg.delete()
+    # captcha-1  |   File "/usr/local/lib/python3.10/site-packages/pyrogram/types/messages_and_media/message.py", line 5655, in delete
+    # captcha-1  |     chat_id=self.chat.id,
+    # captcha-1  | AttributeError: 'NoneType' object has no attribute 'id'
+    try:
         await msg.delete()
-    target_user = msg.caption_entities[0].user.id
-    await ban_user(gu_int[0], target_user)
-    await invalid_queue(gu)
+        target_user = msg.caption_entities[0].user.id
+        await ban_user(gu_int[0], target_user)
+    except:
+        logging.error("failed to delete message: %s", msf)
+    finally:
+        await invalid_queue(gu)
 
 
 def keyword_hit(keyword: str, message: str | None) -> bool:
