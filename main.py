@@ -4,7 +4,7 @@
 
 __author__ = "Benny <benny.think@gmail.com>"
 
-import contextlib
+import asyncio
 import logging
 import os
 import random
@@ -28,7 +28,7 @@ APP_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 REDIS = os.getenv("REDIS", "localhost")
-app = Client("captchabot", APP_ID, API_HASH, bot_token=BOT_TOKEN)
+app = Client("captchabot", APP_ID, API_HASH, bot_token=BOT_TOKEN, workers=2)
 redis_client = aioredis.StrictRedis(host=REDIS, decode_responses=True, db=8)
 image = ImageCaptcha()
 PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
@@ -94,6 +94,9 @@ async def new_chat(client: "Client", message: "types.Message"):
     # delete service message
     await message.delete()
     await redis_client.hset("queue", f"{group_id},{message_id}", str(time.time()))
+    # TODO maybe not a good idea .... sleep and then delete
+    # await asyncio.sleep(30)
+    # await bot_message.delete()
 
 
 @app.on_callback_query(filters.regex(r"Approve_.*"))
@@ -190,7 +193,7 @@ async def un_restrict_user(gid, uid):
             can_send_other_messages=True,
             can_send_polls=True,
             can_add_web_page_previews=True,
-            can_invite_users=True,
+            can_invite_users=False,
             can_change_info=False,
             can_pin_messages=False,
         ),
@@ -206,10 +209,7 @@ async def check_idle_verification():
         time.sleep(random.random())
         if time.time() - float(ts) > IDLE_SECONDS:
             logging.info("Idle verification for %s", group_id)
-            try:
-                await delete_captcha(group_id)
-            except:
-                logging.error("error in deleting captcha %s", group_id, exc_info=True)
+            await delete_captcha(group_id)
 
 
 async def delete_captcha(gu):
@@ -234,7 +234,7 @@ async def delete_captcha(gu):
         target_user = msg.caption_entities[0].user.id
         await ban_user(gu_int[0], target_user)
     except:
-        logging.error("failed to delete message: %s", msf)
+        logging.error("failed to delete message: %s", msg)
     finally:
         await invalid_queue(gu)
 
