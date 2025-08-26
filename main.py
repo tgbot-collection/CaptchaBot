@@ -92,8 +92,8 @@ async def new_chat(client: "Client", message: "types.Message"):
     group_id = message.chat.id
     message_id = bot_message.id
     await redis_client.hset(str(group_id), str(message_id), chars)
-    # delete service message
-    await message.delete()
+    # ignore deleting service message
+    # await message.delete()
     await redis_client.hset("queue", f"{group_id},{message_id}", str(time.time()))
     # TODO sleep and then delete or maybe create_task
     # await asyncio.sleep(30)
