@@ -168,20 +168,20 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
 
 
 async def restrict_user(gid, uid):
+    logging.info("restrict user %s in group %s", uid, gid)
     # this method may throw an error if bot is not admin, so we just ignore it
-    try:
+    with contextlib.suppress(Exception):
         await app.restrict_chat_member(gid, uid, types.ChatPermissions())
-    except ChatAdminRequired:
-        logging.error("Bot is not admin in group %s, cannot restrict user %s", gid, uid)
 
 
 async def ban_user(gid, uid):
+    logging.info("ban user %s in group %s", uid, gid)
     with contextlib.suppress(Exception):
         _ = await app.ban_chat_member(gid, uid)
 
     # only for dev
     if os.getenv("MODE") == "dev":
-        time.sleep(10)
+        await asyncio.sleep(10)
         logging.info("Remove user from banning list")
         await app.unban_chat_member(gid, uid)
 
