@@ -177,7 +177,7 @@ async def restrict_user(gid, uid):
 async def ban_user(gid, uid):
     logging.info("ban user %s in group %s", uid, gid)
     with contextlib.suppress(Exception):
-        _ = await app.ban_chat_member(gid, uid)
+        await app.ban_chat_member(gid, uid)
 
     # only for dev
     if os.getenv("MODE") == "dev":
@@ -187,20 +187,22 @@ async def ban_user(gid, uid):
 
 
 async def un_restrict_user(gid, uid):
-    await app.restrict_chat_member(
-        gid,
-        uid,
-        types.ChatPermissions(
-            can_send_messages=True,
-            can_send_media_messages=True,
-            can_send_other_messages=True,
-            can_send_polls=True,
-            can_add_web_page_previews=True,
-            can_invite_users=False,
-            can_change_info=False,
-            can_pin_messages=False,
-        ),
-    )
+    logging.info("unban user %s in group %s", uid, gid)
+    with contextlib.suppress(Exception):
+        await app.restrict_chat_member(
+            gid,
+            uid,
+            types.ChatPermissions(
+                can_send_messages=True,
+                can_send_media_messages=True,
+                can_send_other_messages=True,
+                can_send_polls=True,
+                can_add_web_page_previews=True,
+                can_invite_users=False,
+                can_change_info=False,
+                can_pin_messages=False,
+            ),
+        )
 
 
 async def invalid_queue(gid_uid):
@@ -209,7 +211,6 @@ async def invalid_queue(gid_uid):
 
 async def check_idle_verification():
     for group_id, ts in (await redis_client.hgetall("queue")).items():
-        time.sleep(random.random())
         if time.time() - float(ts) > IDLE_SECONDS:
             logging.info("Idle verification for %s", group_id)
             await delete_captcha(group_id)
