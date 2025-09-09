@@ -30,7 +30,7 @@ API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 REDIS = os.getenv("REDIS", "localhost")
 app = Client("captchabot", APP_ID, API_HASH, bot_token=BOT_TOKEN)
-redis_client = aioredis.StrictRedis(host=REDIS, decode_responses=True, db=8)
+redis_client = aioredis.StrictRedis(host=REDIS, decode_responses=True, db=0)
 image = ImageCaptcha()
 PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
 IDLE_SECONDS = 60
@@ -95,6 +95,7 @@ async def new_chat(client: "Client", message: "types.Message"):
     #  deleting service message and ignoring error
     with contextlib.suppress(Exception):
         await message.delete()
+    logging.info("add queue %s in group %s", message_id, group_id)
     await redis_client.hset("queue", f"{group_id},{message_id}", str(time.time()))
     # TODO sleep and then delete or maybe create_task
     # await asyncio.sleep(30)
@@ -216,42 +217,19 @@ async def check_idle_verification():
             await delete_captcha(group_id)
 
 
-# captcha-1  | 2025-07-23 21:07:32,595 - root - INFO - message to be deleted: {
-# captcha-1  |     "_": "Message",
-# captcha-1  |     "id": 293901,
-# captcha-1  |     "empty": true
-# captcha-1  | }
-# captcha-1  | 2025-07-23 21:07:32,595 - root - ERROR - error in deleting captcha -1001139287285,293901
-# captcha-1  | Traceback (most recent call last):
-# captcha-1  |   File "/CaptchaBot/main.py", line 209, in check_idle_verification
-# captcha-1  |     await delete_captcha(group_id)
-# captcha-1  |   File "/CaptchaBot/main.py", line 223, in delete_captcha
-# captcha-1  |     await msg.delete()
-# captcha-1  |   File "/usr/local/lib/python3.10/site-packages/pyrogram/types/messages_and_media/message.py", line 5655, in delete
-# captcha-1  |     chat_id=self.chat.id,
-# captcha-1  | AttributeError: 'NoneType' object has no attribute 'id'
-
-
 async def delete_captcha(gu):
     chat_id, msg_id = [int(i) for i in gu.split(",")]
     try:
         msg = await app.get_messages(chat_id, msg_id)
-        logging.info("Fetched message %s in chat %s", msg_id, chat_id)
-
-        if msg.empty:
-            logging.warning("Message %s is empty – likely deleted already", msg_id)
-            return
-
+        logging.info("Fetched message %s in chat %s, detail: %s", msg_id, chat_id, msg)
         await msg.delete()
         logging.info("Deleted message %s", msg_id)
-
         if msg.caption_entities and msg.caption_entities[0].user:
             target_user = msg.caption_entities[0].user.id
             await ban_user(chat_id, target_user)
             logging.info("Banned user %s from chat %s", target_user, chat_id)
         else:
             logging.warning("No user found in caption_entities of message %s", msg_id)
-
     except Exception as e:
         logging.error("Failed to delete/ban for message %s in chat %s: %s", msg_id, chat_id, e)
     finally:
