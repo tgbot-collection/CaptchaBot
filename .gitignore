@@ -139,3 +139,5 @@ dmypy.json
 /.idea/CaptchaBot.iml
 /captchabot.session
 /captchabot.session-journal
+/.idea/copilot.data.migration.agent.xml
+/.idea/copilot.data.migration.edit.xml
