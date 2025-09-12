@@ -207,6 +207,7 @@ async def un_restrict_user(gid, uid):
 
 
 async def invalid_queue(gid_uid):
+    logging.info("remove queue %s", gid_uid)
     await redis_client.hdel("queue", gid_uid)
 
 
@@ -228,12 +229,9 @@ async def delete_captcha(gu):
             target_user = msg.caption_entities[0].user.id
             await ban_user(chat_id, target_user)
             logging.info("Banned user %s from chat %s", target_user, chat_id)
-        else:
-            logging.warning("No user found in caption_entities of message %s", msg_id)
+        await invalid_queue(gu)
     except Exception as e:
         logging.error("Failed to delete/ban for message %s in chat %s: %s", msg_id, chat_id, e)
-    finally:
-        await invalid_queue(gu)
 
 
 def keyword_hit(keyword: str, message: str | None) -> bool:
