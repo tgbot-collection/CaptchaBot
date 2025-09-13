@@ -91,9 +91,9 @@ async def new_chat(client: "Client", message: "types.Message"):
 
     group_id = message.chat.id
     message_id = bot_message.id
-    # redis data structure: name: group_id,chat_id  k-v: created:timestamp, message_id:id, captcha:chars
+    # redis data structure: name: group_id,chat_id  k-v: created:timestamp, message_id:id, captcha:chars, status:deleted
     name = f"{group_id},{from_user_id}"
-    mapping = {"created": str(time.time()), "message_id": str(message_id), "captcha": chars}
+    mapping = {"created": str(time.time()), "message_id": str(message_id), "captcha": chars, "deleted": "false"}
     await redis_client.hset(name, mapping=mapping)
     #  deleting service message and ignoring error
     with contextlib.suppress(Exception):
@@ -208,26 +208,28 @@ async def un_restrict_user(gid, uid):
 
 
 async def invalid_queue(gid_uid):
-    await redis_client.delete(gid_uid)
+    # for debugging purpose, just set deleted to true
+    # await redis_client.delete(gid_uid)
+    await redis_client.hset(gid_uid, mapping={"deleted": "true"})
 
 
 async def check_idle_verification():
     items = await redis_client.keys("*")
-    logging.info("items to be checked: %s", items)
     value = None
     for gid_uid in items:
         try:
             value = await redis_client.hgetall(gid_uid)
+            if value.get("deleted") == "true":
+                continue
             group_id, from_user_id = [int(i) for i in gid_uid.split(",")]
             created_at = float(value.get("created", 0))
             message_id = int(value.get("message_id", 0))
             if time.time() - created_at > IDLE_SECONDS:
-                logging.info("User %s in group %s verification timeout", from_user_id, group_id)
+                logging.info("User %s group %s timeout, message id %s", from_user_id, group_id, message_id)
                 # delete captcha, ban user, and remove from redis
                 await ban_user(group_id, from_user_id)
                 await delete_captcha(group_id, message_id)
                 await invalid_queue(gid_uid)
-                await redis_client.delete(gid_uid)
             else:
                 logging.info("User %s in group %s still in verification queue", from_user_id, group_id)
         except Exception as e:
@@ -238,9 +240,9 @@ async def delete_captcha(group_id, message_id):
     try:
         msg = await app.get_messages(group_id, message_id)
         await msg.delete()
-        logging.info("Deleted captcha message %s", msg)
+        logging.info("Deleted captcha message %s in group %s", message_id, group_id)
     except Exception as e:
-        logging.error("Failed to delete for message %s in chat %s: %s", message_id, group_id, e)
+        logging.error("Failed to delete message %s in group %s: %s", message_id, group_id, e)
 
 
 def keyword_hit(keyword: str, message: str | None) -> bool:
