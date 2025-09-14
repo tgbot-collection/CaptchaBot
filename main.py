@@ -214,6 +214,7 @@ async def check_idle_verification():
     items = await redis_client.keys("*")
     value = None
     for gid_uid in items:
+        await asyncio.sleep(1)
         try:
             value = await redis_client.hgetall(gid_uid)
             if value.get("deleted") == "true":
