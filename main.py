@@ -116,10 +116,9 @@ async def admin_approve(client: "Client", callback_query: types.CallbackQuery):
         await callback_query.answer("Approved")
         await callback_query.message.delete()
         await un_restrict_user(chat_id, join_user_id)
+        await invalid_queue(f"{chat_id},{join_user_id}")
     else:
         await callback_query.answer("You are not administrator")
-
-    await invalid_queue(f"{chat_id},{join_user_id}")
 
 
 @app.on_callback_query(filters.regex(r"Deny.*"))
@@ -135,10 +134,9 @@ async def admin_deny(client: "Client", callback_query: types.CallbackQuery):
         await callback_query.answer("Denied")
         await callback_query.message.delete()
         await ban_user(chat_id, join_user_id)
+        await invalid_queue(f"{chat_id},{join_user_id}")
     else:
         await callback_query.answer("You are not administrator")
-
-    await invalid_queue(f"{chat_id},{join_user_id}")
 
 
 # TODO broad event listener
