@@ -163,7 +163,6 @@ async def user_press(client: "Client", callback_query: types.CallbackQuery):
         await callback_query.answer("Wrong answer")
         await ban_user(group_id, join_user_id)
 
-    await redis_client.hdel(str(group_id), str(msg_id))
     logging.info("Deleting inline button...")
     await callback_query.message.delete()
     await invalid_queue(f"{group_id},{join_user_id}")
