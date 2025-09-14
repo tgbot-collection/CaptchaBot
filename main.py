@@ -226,10 +226,9 @@ async def check_idle_verification():
             message_id = int(value.get("message_id", 0))
             if time.time() - created_at > IDLE_SECONDS:
                 logging.info("User %s group %s timeout, message id %s", from_user_id, group_id, message_id)
-                # delete captcha, ban user, and remove from redis
+                # ban user, delete captcha and remove from redis
                 await ban_user(group_id, from_user_id)
                 await delete_captcha(group_id, from_user_id, message_id)
-                await invalid_queue(gid_uid)
             else:
                 logging.info("User %s in group %s still in verification queue", from_user_id, group_id)
         except Exception as e:
@@ -253,6 +252,7 @@ async def delete_captcha(group_id, from_user_id, message_id):
     try:
         msg = await app.get_messages(group_id, message_id)
         await msg.delete()
+        await invalid_queue(f"{group_id},{from_user_id}")
     except Exception as e:
         logging.error("Failed to delete message %s %s in group %s: %s", from_user_id, message_id, group_id, e)
 
