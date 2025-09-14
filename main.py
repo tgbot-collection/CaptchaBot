@@ -228,7 +228,7 @@ async def check_idle_verification():
                 logging.info("User %s group %s timeout, message id %s", from_user_id, group_id, message_id)
                 # delete captcha, ban user, and remove from redis
                 await ban_user(group_id, from_user_id)
-                await delete_captcha(group_id, message_id)
+                await delete_captcha(group_id, from_user_id, message_id)
                 await invalid_queue(gid_uid)
             else:
                 logging.info("User %s in group %s still in verification queue", from_user_id, group_id)
@@ -236,13 +236,25 @@ async def check_idle_verification():
             logging.info("redis data %s is not correct:%s", value, e)
 
 
-async def delete_captcha(group_id, message_id):
+async def delete_captcha(group_id, from_user_id, message_id):
+    # count = 0
+    # while True:
+    #     try:
+    #         logging.info("preparing to delete captcha message %s %s in group %s", from_user_id, message_id, group_id)
+    #         count += 1
+    #         msg = await app.get_messages(group_id, message_id)
+    #         if msg.empty or count >= 5:
+    #             break
+    #         await msg.delete()
+    #         await asyncio.sleep(1)
+    #     except Exception as e:
+    #         logging.error("Failed to delete message %s in group %s: %s", message_id, group_id, e)
+    logging.info("preparing to delete captcha message %s %s in group %s", from_user_id, message_id, group_id)
     try:
         msg = await app.get_messages(group_id, message_id)
         await msg.delete()
-        logging.info("Deleted captcha message %s in group %s", message_id, group_id)
     except Exception as e:
-        logging.error("Failed to delete message %s in group %s: %s", message_id, group_id, e)
+        logging.error("Failed to delete message %s %s in group %s: %s", from_user_id, message_id, group_id, e)
 
 
 def keyword_hit(keyword: str, message: str | None) -> bool:
