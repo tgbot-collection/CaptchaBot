@@ -91,16 +91,13 @@ async def new_chat(client: "Client", message: "types.Message"):
 
     group_id = message.chat.id
     message_id = bot_message.id
-    # redis data structure: name: group_id,chat_id  k-v: created:timestamp, message_id:id, captcha:chars, status:deleted
+    # redis data structure: name: group_id,chat_id  k-v: created:timestamp, message_id:id, captcha:chars
     name = f"{group_id},{from_user_id}"
-    mapping = {"created": str(time.time()), "message_id": str(message_id), "captcha": chars, "deleted": "false"}
+    mapping = {"created": str(time.time()), "message_id": str(message_id), "captcha": chars}
     await redis_client.hset(name, mapping=mapping)
     #  deleting service message and ignoring error
     with contextlib.suppress(Exception):
         await message.delete()
-    # TODO sleep and then delete or maybe create_task
-    # await asyncio.sleep(30)
-    # await bot_message.delete()
 
 
 @app.on_callback_query(filters.regex(r"Approve.*"))
@@ -206,8 +203,7 @@ async def un_restrict_user(gid, uid):
 
 async def invalid_queue(gid_uid):
     # for debugging purpose, just set deleted to true
-    # await redis_client.delete(gid_uid)
-    await redis_client.hset(gid_uid, mapping={"deleted": "true"})
+    await redis_client.delete(gid_uid)
 
 
 async def check_idle_verification():
@@ -217,8 +213,6 @@ async def check_idle_verification():
         await asyncio.sleep(1)
         try:
             value = await redis_client.hgetall(gid_uid)
-            if value.get("deleted") == "true":
-                continue
             group_id, from_user_id = [int(i) for i in gid_uid.split(",")]
             created_at = float(value.get("created", 0))
             message_id = int(value.get("message_id", 0))
@@ -234,18 +228,6 @@ async def check_idle_verification():
 
 
 async def delete_captcha(group_id, from_user_id, message_id):
-    # count = 0
-    # while True:
-    #     try:
-    #         logging.info("preparing to delete captcha message %s %s in group %s", from_user_id, message_id, group_id)
-    #         count += 1
-    #         msg = await app.get_messages(group_id, message_id)
-    #         if msg.empty or count >= 5:
-    #             break
-    #         await msg.delete()
-    #         await asyncio.sleep(1)
-    #     except Exception as e:
-    #         logging.error("Failed to delete message %s in group %s: %s", message_id, group_id, e)
     logging.info("preparing to delete captcha message %s %s in group %s", from_user_id, message_id, group_id)
     try:
         msg = await app.get_messages(group_id, message_id)
