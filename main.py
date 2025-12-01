@@ -185,8 +185,8 @@ async def ban_user(gid, uid):
 async def un_restrict_user(gid, uid):
     logging.info("unban user %s in group %s", uid, gid)
     await app.restrict_chat_member(
-        gid,
-        uid,
+        int(gid),
+        int(uid),
         types.ChatPermissions(
             can_send_messages=True,
             can_send_media_messages=True,
