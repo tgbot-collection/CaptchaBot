@@ -184,21 +184,20 @@ async def ban_user(gid, uid):
 
 async def un_restrict_user(gid, uid):
     logging.info("unban user %s in group %s", uid, gid)
-    with contextlib.suppress(Exception):
-        await app.restrict_chat_member(
-            gid,
-            uid,
-            types.ChatPermissions(
-                can_send_messages=True,
-                can_send_media_messages=True,
-                can_send_other_messages=True,
-                can_send_polls=True,
-                can_add_web_page_previews=True,
-                can_invite_users=False,
-                can_change_info=False,
-                can_pin_messages=False,
-            ),
-        )
+    await app.restrict_chat_member(
+        gid,
+        uid,
+        types.ChatPermissions(
+            can_send_messages=True,
+            can_send_media_messages=True,
+            can_send_other_messages=True,
+            can_send_polls=True,
+            can_add_web_page_previews=True,
+            can_invite_users=False,
+            can_change_info=False,
+            can_pin_messages=False,
+        ),
+    )
 
 
 async def invalid_queue(gid_uid):
