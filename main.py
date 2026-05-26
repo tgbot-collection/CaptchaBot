@@ -277,7 +277,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
         message.via_bot
         or message.reply_markup
         or user_message.startswith("https://t.me/+")
-        or "t.me/+" in (message.from_user.bio or "")
+        or "t.me" in (message.from_user.bio or "")
         or user_sticker in blacklist_sticker
     ):
         await message.delete()
