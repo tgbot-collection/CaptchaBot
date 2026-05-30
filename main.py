@@ -42,7 +42,7 @@ def generate_char():
     return "".join([random.choice(PREDEFINED_STR) for _ in range(5)])
 
 
-@app.on_message(filters.command(["start", "help"]))
+@app.on_message(filters.command(["start", "help"]) &  filters.private)
 async def start_handler(client: "Client", message: "types.Message"):
     logging.info("Welcome to Captcha Bot")
     await message.reply_text("Hello! Add me to a group and make me admin!", quote=True)
