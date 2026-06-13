@@ -279,6 +279,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
         or user_message.startswith("https://t.me/+")
         or "t.me/+" in (chat.bio or "")
         or user_sticker in blacklist_sticker
+        or  (message.text or "").count("@") >= 3
     ):
         await message.delete()
         logging.warning("potential spam message detected: %s", user_message)
