@@ -276,6 +276,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
     if (
         message.via_bot
         or message.reply_markup
+        or message.contact
         or user_message.startswith("https://t.me/+")
         or "t.me/+" in (chat.bio or "")
         or user_sticker in blacklist_sticker
