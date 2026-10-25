@@ -246,6 +246,17 @@ def keyword_hit(keyword: str, message: str | None) -> bool:
 @app.on_message(filters.group & filters.incoming & ~filters.service)
 @app.on_edited_message(filters.group & filters.incoming & ~filters.service)
 async def group_message_preprocess(client: "Client", message: "types.Message"):
+    # Check message-local spam signals before any user or sticker API requests.
+    sender_username = (getattr(message.from_user, "username", None) or "").lower()
+    has_inline_buttons = isinstance(message.reply_markup, types.InlineKeyboardMarkup) and any(
+        message.reply_markup.inline_keyboard
+    )
+    if message.via_bot or (has_inline_buttons and sender_username != "benny_captcha_bot"):
+        await message.delete()
+        reason = "via_bot" if message.via_bot else "inline_keyboard"
+        logging.warning("potential spam message detected (%s): %s", reason, message.text or message.caption or "")
+        return True
+
     blacklist_id = [int(i) for i in os.getenv("BLACKLIST_ID", "").split(",") if i]
     blacklist_name = [i for i in os.getenv("BLACKLIST_NAME", "").split(",") if i]
     blacklist_emoji = [i for i in os.getenv("BLACKLIST_EMOJI", "").split(",") if i]
@@ -274,9 +285,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
 
     chat = await app.get_chat(message.from_user.id)
     if (
-        message.via_bot
-        or message.reply_markup
-        or message.contact
+        message.contact
         or user_message.startswith("https://t.me/+")
         or "t.me/+" in (chat.bio or "")
         or user_sticker in blacklist_sticker
