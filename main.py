@@ -242,6 +242,33 @@ def keyword_hit(keyword: str, message: str | None) -> bool:
     return keyword.lower() in convert(message.lower(), "zh-cn")
 
 
+async def delete_guest_bot_trigger(client: "Client", message: "types.Message"):
+    caller_id = getattr(getattr(message, "guest_bot_caller_user", None), "id", None)
+    if caller_id is None:
+        return
+
+    trigger = getattr(message, "reply_to_message", None)
+    reply_id = getattr(message, "reply_to_message_id", None)
+    trigger_id = getattr(trigger, "id", None) or reply_id or message.id - 1
+    if trigger_id <= 0:
+        return
+
+    try:
+        if trigger is None:
+            trigger = await client.get_messages(message.chat.id, trigger_id)
+        if getattr(getattr(trigger, "from_user", None), "id", None) != caller_id:
+            return
+        if reply_id is None and getattr(message, "reply_to_message", None) is None:
+            # An adjacent message is only a guess: also verify the bot mention.
+            bot_username = getattr(message.from_user, "username", None)
+            text = trigger.text or trigger.caption or ""
+            if not bot_username or not re.search(r"@" + re.escape(bot_username) + r"\b", text, re.IGNORECASE):
+                return
+        await trigger.delete()
+    except Exception as e:
+        logging.warning("Failed to delete guest bot trigger %s in chat %s: %s", trigger_id, message.chat.id, e)
+
+
 # only group incoming message, ignore service message
 @app.on_message(filters.group & filters.incoming & ~filters.service)
 @app.on_edited_message(filters.group & filters.incoming & ~filters.service)
@@ -263,10 +290,10 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
         reason = "guest_bot"
     elif has_inline_buttons and sender_username != "benny_captcha_bot":
         reason = "inline_keyboard"
-    elif user_message.count("@") >= 3:
-        reason = "multiple_mentions"
     if reason:
         await message.delete()
+        if is_guest_bot_reply:
+            await delete_guest_bot_trigger(client, message)
         logging.warning("potential spam message detected (%s): %s", reason, user_message)
         return True
 
