@@ -247,14 +247,27 @@ def keyword_hit(keyword: str, message: str | None) -> bool:
 @app.on_edited_message(filters.group & filters.incoming & ~filters.service)
 async def group_message_preprocess(client: "Client", message: "types.Message"):
     # Check message-local spam signals before any user or sticker API requests.
+    user_message = message.text or message.caption or ""
     sender_username = (getattr(message.from_user, "username", None) or "").lower()
     has_inline_buttons = isinstance(message.reply_markup, types.InlineKeyboardMarkup) and any(
         message.reply_markup.inline_keyboard
     )
-    if message.via_bot or (has_inline_buttons and sender_username != "benny_captcha_bot"):
+    is_guest_bot_reply = (
+        getattr(message, "guest_bot_caller_user", None) is not None
+        or getattr(message, "guest_bot_caller_chat", None) is not None
+    )
+    reason = None
+    if message.via_bot:
+        reason = "via_bot"
+    elif is_guest_bot_reply:
+        reason = "guest_bot"
+    elif has_inline_buttons and sender_username != "benny_captcha_bot":
+        reason = "inline_keyboard"
+    elif user_message.count("@") >= 3:
+        reason = "multiple_mentions"
+    if reason:
         await message.delete()
-        reason = "via_bot" if message.via_bot else "inline_keyboard"
-        logging.warning("potential spam message detected (%s): %s", reason, message.text or message.caption or "")
+        logging.warning("potential spam message detected (%s): %s", reason, user_message)
         return True
 
     blacklist_id = [int(i) for i in os.getenv("BLACKLIST_ID", "").split(",") if i]
@@ -267,7 +280,6 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
     forward_id = getattr(message.forward_origin, "id", None)
     forward_title = getattr(message.forward_origin, "title", "")
     forward_type = getattr(message.forward_origin, "type", "")
-    user_message = message.text or ""
     user_sticker = None
     is_ban = False
     if message.sticker:
@@ -289,7 +301,6 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
         or user_message.startswith("https://t.me/+")
         or "t.me/+" in (chat.bio or "")
         or user_sticker in blacklist_sticker
-        or  (message.text or "").count("@") >= 3
     ):
         await message.delete()
         logging.warning("potential spam message detected: %s", user_message)
