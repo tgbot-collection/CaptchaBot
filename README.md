@@ -26,7 +26,7 @@ environment variables:
 Spam 学习功能已接入现有规则删除路径，功能默认关闭：
 
 * `SPAM_LEARNING_ENABLED`：默认 `false`
-* `SPAM_ADMIN_IDS`：逗号分隔的 Telegram 管理员用户 ID
+* `SPAM_ADMIN_ID`：唯一接收审核通知的 Telegram 管理员用户 ID（正整数）
 * `D1_ACCOUNT_ID`
 * `D1_DATABASE_ID`
 * `D1_API_TOKEN`
@@ -38,9 +38,24 @@ Spam 学习功能已接入现有规则删除路径，功能默认关闭：
 * `SPAM_BIO_CACHE_SIZE`：Bio 缓存最大条目数，默认 `1000`
 * `SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS`：关停排空超时，默认 `5.0`
 
-启用 `SPAM_LEARNING_ENABLED` 时，管理员 ID 和三项 D1 配置必须存在。
+启用 `SPAM_LEARNING_ENABLED` 时，单个管理员 ID 和三项 D1 配置必须存在。
 所有密钥只能通过环境变量或 Secret 注入。
 规则删除前只做同步内存快照；Bio 和 D1 请求在有界后台队列中执行。队列已满时丢弃采集任务，不影响删除。
+只有 D1 pending 写入成功后才会私聊该管理员。管理员可在 Bot 私聊中使用 `/dataset`
+查看聚合统计，不会返回消息全文或个人信息。
+
+审核通知发送失败时样本仍保留为 pending，V1 不自动补发。可先用 `/dataset` 确认
+pending 数量，然后在 Cloudflare D1 Console 中定位未审核记录：
+
+```sql
+SELECT id, created_at, review_chat_id, review_message_id
+FROM samples
+WHERE status = 'pending'
+ORDER BY id ASC;
+```
+
+`review_chat_id`/`review_message_id` 为 NULL 通常表示未成功记录审核通知，需要人工查看 D1
+中该样本并决定后续处理；不得因为规则命中而直接将它标为 Spam。
 
 ## D1 Migration
 

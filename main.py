@@ -21,7 +21,14 @@ from pyrogram.raw import functions as raw_functions
 from pyrogram.raw import types as raw_types
 from zhconv import convert
 
-from spam_learning import CaptureService, D1Client, SpamLearningConfig, sample_from_message
+from spam_learning import (
+    CaptureService,
+    D1Client,
+    D1Error,
+    ReviewService,
+    SpamLearningConfig,
+    sample_from_message,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logging.getLogger("apscheduler.executors.default").propagate = False
@@ -41,6 +48,7 @@ scheduler = AsyncIOScheduler()
 spam_learning_config = SpamLearningConfig.from_env()
 spam_capture_service: CaptureService | None = None
 spam_d1_client: D1Client | None = None
+spam_review_service: ReviewService | None = None
 
 
 def generate_char():
@@ -51,6 +59,22 @@ def generate_char():
 async def start_handler(client: "Client", message: "types.Message"):
     logging.info("Welcome to Captcha Bot")
     await message.reply_text("Hello! Add me to a group and make me admin!", quote=True)
+
+
+@app.on_message(filters.command("dataset") & filters.private)
+async def dataset_handler(client: "Client", message: "types.Message"):
+    service = spam_review_service
+    actor_id = getattr(getattr(message, "from_user", None), "id", None)
+    if service is None or actor_id != service.admin_id:
+        await message.reply_text("你没有查看数据集统计的权限。")
+        return
+    try:
+        text = await service.dataset_stats_text()
+    except D1Error as exc:
+        logging.warning("Spam 数据集统计失败（%s）", type(exc).__name__)
+        await message.reply_text("数据集统计暂时不可用，请稍后重试。")
+        return
+    await message.reply_text(text)
 
 
 @app.on_message(filters.new_chat_members)  # only service message
@@ -141,8 +165,17 @@ async def admin_deny(client: "Client", callback_query: types.CallbackQuery):
         await callback_query.answer("You are not administrator")
 
 
-# TODO broad event listener
-@app.on_callback_query()
+@app.on_callback_query(filters.regex(r"^sd:[1-9]\d*:[sh]$"))
+async def spam_review_callback(client: "Client", callback_query: types.CallbackQuery):
+    service = spam_review_service
+    if service is None:
+        await callback_query.answer("审核功能当前不可用", show_alert=True)
+        return
+    await service.handle_callback(callback_query)
+
+
+# 验证码历史回调保持 catch-all，但必须显式排除 Spam 审核协议。
+@app.on_callback_query(~filters.regex(r"^sd:[1-9]\d*:[sh]$"))
 async def user_press(client: "Client", callback_query: types.CallbackQuery):
     click_user = callback_query.from_user.id
     join_user_id = callback_query.data.split(",")[1]
@@ -424,12 +457,19 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
 
 @app.on_start()
 async def startup(client):
-    global spam_capture_service, spam_d1_client
+    global spam_capture_service, spam_d1_client, spam_review_service
     if spam_learning_config.enabled:
+        assert spam_learning_config.admin_id is not None
         spam_d1_client = D1Client.from_config(spam_learning_config)
+        spam_review_service = ReviewService(
+            client,
+            spam_d1_client,
+            admin_id=spam_learning_config.admin_id,
+        )
         spam_capture_service = CaptureService(
             client,
             spam_d1_client,
+            spam_review_service,
             queue_size=spam_learning_config.capture_queue_size,
             worker_count=spam_learning_config.capture_workers,
             bio_timeout=spam_learning_config.bio_timeout_seconds,
@@ -446,10 +486,11 @@ async def startup(client):
 
 @app.on_stop()
 async def shutdown(client):
-    global spam_capture_service, spam_d1_client
+    global spam_capture_service, spam_d1_client, spam_review_service
     if spam_capture_service is not None:
         await spam_capture_service.aclose()
         spam_capture_service = None
+    spam_review_service = None
     if spam_d1_client is not None:
         await spam_d1_client.aclose()
         spam_d1_client = None

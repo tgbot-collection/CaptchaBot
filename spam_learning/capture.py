@@ -16,6 +16,10 @@ class PendingSampleStore(Protocol):
     async def create_pending(self, sample: SpamSample) -> int: ...
 
 
+class PendingSampleNotifier(Protocol):
+    async def notify_pending(self, sample_id: int, sample: SpamSample) -> None: ...
+
+
 class CaptureService:
     """在删除关键路径之外补充 Bio 并写入 pending 样本。"""
 
@@ -23,6 +27,7 @@ class CaptureService:
         self,
         telegram_client: Any,
         store: PendingSampleStore,
+        notifier: PendingSampleNotifier | None = None,
         *,
         queue_size: int = 100,
         worker_count: int = 2,
@@ -46,6 +51,7 @@ class CaptureService:
 
         self._telegram = telegram_client
         self._store = store
+        self._notifier = notifier
         self._queue: asyncio.Queue[SpamSample] = asyncio.Queue(maxsize=queue_size)
         self._worker_count = worker_count
         self._bio_timeout = bio_timeout
@@ -104,7 +110,13 @@ class CaptureService:
             sample = await self._queue.get()
             try:
                 enriched = await self._with_bio(sample)
-                await self._store.create_pending(enriched)
+                sample_id = await self._store.create_pending(enriched)
+                if self._notifier is not None:
+                    try:
+                        await self._notifier.notify_pending(sample_id, enriched)
+                    except Exception as exc:
+                        # pending 已成功写入；通知失败不能伪装为未保存或删除记录。
+                        logging.warning("Spam 审核通知处理失败（%s）", type(exc).__name__)
             except Exception as exc:
                 # 不记录异常原文，避免上游库将消息或私密标识符带入日志。
                 logging.warning("Spam 样本后台采集失败（%s）", type(exc).__name__)

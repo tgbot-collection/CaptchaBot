@@ -116,6 +116,14 @@ class D1ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record.label, "spam")
         self.assertEqual(record.reviewed_by, 12345)
 
+    async def test_review_message_reference_is_stored(self) -> None:
+        sample_id = await self.client.create_pending(make_sample())
+
+        await self.client.set_review_message(sample_id, 12345, 678)
+
+        record = await self.client.get(sample_id)
+        self.assertEqual((record.review_chat_id, record.review_message_id), (12345, 678))
+
     async def test_review_missing_sample_is_explicit(self) -> None:
         with self.assertRaises(D1NotFoundError):
             await self.client.review(999, "spam", 12345)
@@ -217,6 +225,25 @@ class D1ResponseHandlingTests(unittest.IsolatedAsyncioTestCase):
 
 
 class D1ConfigTests(unittest.TestCase):
+    def test_single_admin_config_is_required_when_enabled(self) -> None:
+        with self.assertRaisesRegex(ConfigError, "SPAM_ADMIN_ID"):
+            SpamLearningConfig.from_env({"SPAM_LEARNING_ENABLED": "true"})
+
+        config = SpamLearningConfig.from_env(
+            {
+                "SPAM_LEARNING_ENABLED": "true",
+                "SPAM_ADMIN_ID": "12345",
+                "D1_ACCOUNT_ID": "account",
+                "D1_DATABASE_ID": "database",
+                "D1_API_TOKEN": "token",
+            }
+        )
+        self.assertEqual(config.admin_id, 12345)
+
+    def test_single_admin_config_rejects_lists(self) -> None:
+        with self.assertRaisesRegex(ConfigError, "SPAM_ADMIN_ID"):
+            SpamLearningConfig.from_env({"SPAM_ADMIN_ID": "123,456"})
+
     def test_capture_config_defaults_and_overrides(self) -> None:
         defaults = SpamLearningConfig.from_env({})
         self.assertEqual(

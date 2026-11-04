@@ -57,7 +57,66 @@ class BlockingStore(RecordingStore):
         return await super().create_pending(sample)
 
 
+class FailingStore(RecordingStore):
+    async def create_pending(self, sample: SpamSample) -> int:
+        raise RuntimeError("D1 failed")
+
+
+class RecordingNotifier:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.calls: list[tuple[int, SpamSample]] = []
+        self.error = error
+
+    async def notify_pending(self, sample_id: int, sample: SpamSample) -> None:
+        self.calls.append((sample_id, sample))
+        if self.error is not None:
+            raise self.error
+
+
 class CaptureServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_notifies_only_after_pending_write_succeeds(self) -> None:
+        telegram = FakeTelegram()
+        store = RecordingStore()
+        notifier = RecordingNotifier()
+        service = CaptureService(telegram, store, notifier, worker_count=1)
+        service.start()
+        try:
+            self.assertTrue(service.submit(make_sample(1)))
+            await service.wait_until_idle()
+        finally:
+            await service.aclose()
+
+        self.assertEqual(len(store.samples), 1)
+        self.assertEqual(notifier.calls, [(1, store.samples[0])])
+
+    async def test_notification_failure_keeps_written_pending_sample(self) -> None:
+        telegram = FakeTelegram()
+        store = RecordingStore()
+        notifier = RecordingNotifier(error=RuntimeError("send failed"))
+        service = CaptureService(telegram, store, notifier, worker_count=1)
+        service.start()
+        try:
+            self.assertTrue(service.submit(make_sample(1)))
+            await service.wait_until_idle()
+        finally:
+            await service.aclose()
+
+        self.assertEqual(len(store.samples), 1)
+        self.assertEqual(len(notifier.calls), 1)
+
+    async def test_pending_write_failure_never_sends_notification(self) -> None:
+        telegram = FakeTelegram()
+        notifier = RecordingNotifier()
+        service = CaptureService(telegram, FailingStore(), notifier, worker_count=1)
+        service.start()
+        try:
+            self.assertTrue(service.submit(make_sample(1)))
+            await service.wait_until_idle()
+        finally:
+            await service.aclose()
+
+        self.assertEqual(notifier.calls, [])
+
     async def test_enriches_bio_and_reuses_bounded_ttl_cache(self) -> None:
         telegram = FakeTelegram(bio="保留原始 Bio")
         store = RecordingStore()

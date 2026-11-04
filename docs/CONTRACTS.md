@@ -28,7 +28,7 @@ Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 - `message.date` 输出 UTC ISO 8601；`media_type` 和 entity type 输出稳定字符串。entities 只保存类型、UTF-16 offset/length 以及 URL、关联用户 ID、语言、custom emoji ID 等必要字段。
 - 缺失 `from_user` 时保留字段全为 null 的 user 快照；Inline Bot 只保存 `via_bot.id` 和 `via_bot.username`。
 - 手工种子是已确认正例，因此使用 `source=manual`、`status=reviewed`、`label=spam`；在线规则命中样本使用 `source=rule`、`status=pending`、`label=null`。Story 003 在 D1 尚未部署时将原草案的 `keyword` 扩展为 `rule`，避免对非关键词规则使用错误语义。
-- 基础配置环境变量为 `SPAM_LEARNING_ENABLED`、`SPAM_ADMIN_IDS`、`D1_ACCOUNT_ID`、`D1_DATABASE_ID`、`D1_API_TOKEN`、`SPAM_MODEL_PATH`。功能默认关闭；开启时前三项 D1 标识/凭证和管理员 ID 必填。
+- 基础配置环境变量为 `SPAM_LEARNING_ENABLED`、`SPAM_ADMIN_ID`、`D1_ACCOUNT_ID`、`D1_DATABASE_ID`、`D1_API_TOKEN`、`SPAM_MODEL_PATH`。功能默认关闭；开启时三项 D1 标识/凭证和单个正整数管理员 ID 必填。Story 004 根据实际运维需求将原多管理员草案 `SPAM_ADMIN_IDS` 收敛为单管理员，不保留旧环境变量兼容。
 - Story 003 增加 `SPAM_CAPTURE_QUEUE_SIZE`、`SPAM_CAPTURE_WORKERS`、`SPAM_BIO_TIMEOUT_SECONDS`、`SPAM_BIO_CACHE_TTL_SECONDS`、`SPAM_BIO_CACHE_SIZE`、`SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS`；具体默认值见 `README.md` 和 `docs/notes/003-notes.md`。
 
 ## D1 存储约定
@@ -40,6 +40,7 @@ Story 002 的公共存储接口：
 
 - `D1Client.create_pending(sample) -> int`：只接受带 `chat_id/message_id` 的 `rule/pending` 样本。
 - `D1Client.review(id, label, admin_id) -> ReviewOutcome`：返回 `changed` 或 `already_reviewed`；ID 不存在抛出 `D1NotFoundError`。
+- `D1Client.set_review_message(id, chat_id, message_id) -> None`：在 Telegram 通知发送成功后记录单管理员私聊位置；不存在的样本抛出 `D1NotFoundError`。
 - `D1Client.get(id) -> StoredSample`：`message_json` 已解析为 `StoredSample.sample` 字典。
 - `D1Client.stats() -> SampleStats`：提供 total、pending、reviewed、spam、ham 数量。
 - `D1Client.export_reviewed(page_size=200) -> list[StoredSample]`：使用 `id` keyset 分页并按 `id ASC` 稳定排序。
@@ -52,7 +53,7 @@ D1 Query REST 客户端使用参数化 SQL、5 秒默认超时、最多 2 次默
 UPDATE samples SET status='reviewed', label=?, reviewed_at=CURRENT_TIMESTAMP, reviewed_by=? WHERE id=? AND status='pending';
 ```
 
-必须检查受影响行数；已审核则显示原状态，不覆盖标签。Bot 在修改 D1 前先验证管理员权限。`callback_data` 使用 `sd:<id>:s` 或 `sd:<id>:h`，满足 Telegram 64 字节限制。所有 D1 SQL 必须参数绑定，不能拼接用户输入。
+必须检查受影响行数；已审核则显示原状态，不覆盖标签。Bot 在修改 D1 前先验证操作者是 `SPAM_ADMIN_ID`。`callback_data` 使用 `sd:<id>:s` 或 `sd:<id>:h`，满足 Telegram 64 字节限制。所有 D1 SQL 必须参数绑定，不能拼接用户输入。
 
 ## 预测接口
 `predict(sample) -> {kind, decision, score, model_version, nearest_example?}`。

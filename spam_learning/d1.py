@@ -227,6 +227,24 @@ class D1Client:
             return ReviewOutcome.ALREADY_REVIEWED
         raise D1APIError("样本审核状态异常，未执行覆盖")
 
+    async def set_review_message(self, sample_id: int, chat_id: int, message_id: int) -> None:
+        """记录已成功发送的单管理员审核通知位置。"""
+
+        sample_id = _positive_id(sample_id, "sample_id")
+        chat_id = _positive_id(chat_id, "chat_id")
+        message_id = _positive_id(message_id, "message_id")
+        result = await self._query(
+            """
+            UPDATE samples
+            SET review_chat_id = ?, review_message_id = ?
+            WHERE id = ?
+            RETURNING id
+            """,
+            (str(chat_id), str(message_id), str(sample_id)),
+        )
+        if not _result_rows(result):
+            raise D1NotFoundError(f"样本 {sample_id} 不存在")
+
     async def get(self, sample_id: int) -> StoredSample:
         sample_id = _positive_id(sample_id, "sample_id")
         result = await self._query("SELECT * FROM samples WHERE id = ?", (str(sample_id),))
