@@ -9,6 +9,6 @@
 - [x] 005 — 初始模型 · [Notes](notes/005-notes.md) · 已完成
 - [x] 006 — 推理接入 · [Notes](notes/006-notes.md) · 已完成
 - [x] 007 — 重新训练 · [Notes](notes/007-notes.md) · 已完成
-- [ ] 008 — Docker 部署 · [Notes](notes/008-notes.md) · 未开始
+- [x] 008 — Docker 部署 · [Notes](notes/008-notes.md) · 已完成
 
 这里仅记录状态；真实验证方式/结果、决策、修改文件、风险和 commit hash 必须写入对应 Notes。每次新会话先阅读已完成的 Notes。
