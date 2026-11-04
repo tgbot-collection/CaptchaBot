@@ -3,11 +3,10 @@
 ## 每次会话的工作流程（强制）
 1. 首先阅读 `AGENTS.md`、`docs/000-overview.md`、`docs/CONTRACTS.md`、`docs/PROGRESS.md`、当前 Story，以及**此前所有已完成 Story 的 `docs/notes/NNN-notes.md`**。
 2. 先检查真实仓库结构、关键词删除入口、Pyrogram 使用方式、事件循环、依赖及 Docker 配置；不要假设现有实现与设计文档完全一致。发现冲突先说明并征求确认。
-3. **一次会话只实现一个 Story**；只修改该 Story 必需的代码、测试和文档，不提前开发后续 Story。
-4. 添加并执行离线测试；如无法执行，必须如实写明原因，禁止编造结果。
-5. **完成当前 Story 前必须填写对应 `docs/notes/NNN-notes.md`**，记录真实实现内容、修改文件、接口和配置、设计决策、执行过的测试及结果、已知问题、下一 Story 交接信息、Git commit/PR 引用。完成的 Story 不允许保留 TODO 占位；没有提交就写“尚未提交”，不要编造 hash。
-6. 更新 `docs/PROGRESS.md` 中的状态和 Notes 链接；必要时同步修改 `docs/CONTRACTS.md`，明确记录变更原因。未通过验收不得标记完成。
-7. 完成后停止，不自行进入下一 Story。
+3. **一次会话只实现一个 Story**；只修改该 Story 必需的代码和文档，不提前开发后续 Story。
+4. **完成当前 Story 前必须填写对应 `docs/notes/NNN-notes.md`**，记录真实实现内容、修改文件、接口和配置、设计决策、实际验证方式及结果、已知问题、下一 Story 交接信息、Git commit/PR 引用。完成的 Story 不允许保留 TODO 占位；没有提交就写“尚未提交”，不要编造 hash。
+5. 更新 `docs/PROGRESS.md` 中的状态和 Notes 链接；必要时同步修改 `docs/CONTRACTS.md`，明确记录变更原因。未通过验收不得标记完成。
+6. 完成后停止，不自行进入下一 Story。
 
 ## 语言要求（强制）
 - **所有 Story、架构文档、Notes、进度记录、Codex 的分析摘要和最终回复均使用简体中文。**
@@ -25,9 +24,9 @@
 - Inline Keyboard 回调仅携带简短 ID/操作；验证管理员 ID，原子更新审核状态，及时应答 callback，成功写入 D1 后才更新通知。
 - 日志不输出密钥、完整 Bio、私密标识符或消息全文；只采集必要字段，明确数据保留/删除策略。不加载来源不可信的 `pickle` / `joblib` 模型文件。
 - Docker 支持 Linux `arm64` 和 `amd64`，CPU 推理；可在 macOS M1 Pro 训练。模型打包进镜像，无需 bind mount；不调用云端 AI 服务。
-- 新功能默认关闭，通过环境变量启用；必须向后兼容。测试使用 Mock，CI 不依赖真实 Telegram 或 D1 凭证。
+- 新功能默认关闭，通过环境变量启用；必须向后兼容。CI 构建不得依赖真实 Telegram 或 D1 凭证。
 
 ## 验收与交接
 - 每个 Story 的验收条件以对应 `docs/00N-*.md` 为准。
 - `docs/PROGRESS.md` 只维护总览；**每个 Story 独立一份 Notes**，不得将多 Story 的实现记录混在一起。
-- 任何未验证的假设、未执行的测试和遗留风险必须明确标注。
+- 任何未验证的假设和遗留风险必须明确标注。

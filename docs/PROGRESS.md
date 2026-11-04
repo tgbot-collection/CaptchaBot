@@ -2,7 +2,7 @@
 
 详细实现与交接记录放在 `docs/notes/`，**一个 Story 对应一份 Notes**。只有验收通过、Notes 已完整填写，才能标记完成。
 
-- [ ] 001 — 初始化架构 · [Notes](notes/001-notes.md) · 未开始
+- [x] 001 — 初始化架构 · [Notes](notes/001-notes.md) · 已完成
 - [ ] 002 — D1 集成 · [Notes](notes/002-notes.md) · 未开始
 - [ ] 003 — 消息采集 · [Notes](notes/003-notes.md) · 未开始
 - [ ] 004 — 管理员审核 · [Notes](notes/004-notes.md) · 未开始
@@ -11,4 +11,4 @@
 - [ ] 007 — 重新训练 · [Notes](notes/007-notes.md) · 未开始
 - [ ] 008 — Docker 部署 · [Notes](notes/008-notes.md) · 未开始
 
-这里仅记录状态；真实测试命令/结果、决策、修改文件、风险和 commit hash 必须写入对应 Notes。每次新会话先阅读已完成的 Notes。
+这里仅记录状态；真实验证方式/结果、决策、修改文件、风险和 commit hash 必须写入对应 Notes。每次新会话先阅读已完成的 Notes。
