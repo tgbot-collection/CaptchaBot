@@ -27,24 +27,16 @@ def _parse_bool(name: str, value: str | None, *, default: bool) -> bool:
     raise ConfigError(f"{name} 必须是 true/false、1/0、yes/no 或 on/off")
 
 
-def _parse_admin_ids(value: str | None) -> tuple[int, ...]:
+def _parse_admin_id(value: str | None) -> int | None:
     if value is None or not value.strip():
-        return ()
-
-    result: list[int] = []
-    for item in value.split(","):
-        item = item.strip()
-        if not item:
-            raise ConfigError("SPAM_ADMIN_IDS 不能包含空值")
-        try:
-            admin_id = int(item)
-        except ValueError as exc:
-            raise ConfigError("SPAM_ADMIN_IDS 必须是逗号分隔的整数") from exc
-        if admin_id <= 0:
-            raise ConfigError("SPAM_ADMIN_IDS 必须是正整数")
-        if admin_id not in result:
-            result.append(admin_id)
-    return tuple(result)
+        return None
+    try:
+        admin_id = int(value.strip())
+    except ValueError as exc:
+        raise ConfigError("SPAM_ADMIN_ID 必须是正整数") from exc
+    if admin_id <= 0:
+        raise ConfigError("SPAM_ADMIN_ID 必须是正整数")
+    return admin_id
 
 
 def _optional_value(value: str | None) -> str | None:
@@ -82,12 +74,12 @@ def _parse_positive_float(name: str, value: str | None, *, default: float) -> fl
 class SpamLearningConfig:
     """默认关闭的 Spam 学习配置。
 
-    功能关闭时允许 D1 和管理员配置为空；开启时必须提供后续采集与审核
-    所需的最小配置。Story 001 只解析配置，不建立任何网络连接。
+    功能关闭时允许 D1 和管理员配置为空；开启时必须提供采集与审核
+    所需的最小配置。本类只解析和校验配置，不建立任何网络连接。
     """
 
     enabled: bool = False
-    admin_ids: tuple[int, ...] = ()
+    admin_id: int | None = None
     d1_account_id: str | None = None
     d1_database_id: str | None = None
     d1_api_token: str | None = field(default=None, repr=False)
@@ -113,7 +105,7 @@ class SpamLearningConfig:
 
         config = cls(
             enabled=enabled,
-            admin_ids=_parse_admin_ids(values.get("SPAM_ADMIN_IDS")),
+            admin_id=_parse_admin_id(values.get("SPAM_ADMIN_ID")),
             d1_account_id=_optional_value(values.get("D1_ACCOUNT_ID")),
             d1_database_id=_optional_value(values.get("D1_DATABASE_ID")),
             d1_api_token=_optional_value(values.get("D1_API_TOKEN")),
@@ -147,8 +139,8 @@ class SpamLearningConfig:
             return
 
         missing: list[str] = []
-        if not self.admin_ids:
-            missing.append("SPAM_ADMIN_IDS")
+        if self.admin_id is None:
+            missing.append("SPAM_ADMIN_ID")
         missing.extend(self._missing_d1_config())
         if missing:
             raise ConfigError("SPAM_LEARNING_ENABLED 开启时缺少配置：" + ", ".join(missing))

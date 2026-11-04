@@ -5,7 +5,7 @@
 - [x] 001 — 初始化架构 · [Notes](notes/001-notes.md) · 已完成
 - [x] 002 — D1 集成 · [Notes](notes/002-notes.md) · 已完成
 - [x] 003 — 消息采集 · [Notes](notes/003-notes.md) · 已完成
-- [ ] 004 — 管理员审核 · [Notes](notes/004-notes.md) · 未开始
+- [x] 004 — 管理员审核 · [Notes](notes/004-notes.md) · 已完成
 - [ ] 005 — 初始模型 · [Notes](notes/005-notes.md) · 未开始
 - [ ] 006 — 推理接入 · [Notes](notes/006-notes.md) · 未开始
 - [ ] 007 — 重新训练 · [Notes](notes/007-notes.md) · 未开始

@@ -23,6 +23,7 @@ from .d1 import (
     SampleStats,
     StoredSample,
 )
+from .review import ReviewService, render_dataset_stats, render_pending_notification
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -39,10 +40,13 @@ __all__ = [
     "SpamLearningConfig",
     "SpamSample",
     "ReviewOutcome",
+    "ReviewService",
     "SampleStats",
     "StoredSample",
     "UserSnapshot",
     "ViaBotSnapshot",
     "sample_from_message",
     "sample_from_seed_text",
+    "render_dataset_stats",
+    "render_pending_notification",
 ]
