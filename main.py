@@ -303,6 +303,12 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
     blacklist_sticker = [i for i in os.getenv("BLACKLIST_STICKER", "").split(",") if i]
     blacklist_message = [i for i in os.getenv("BLACKLIST_MESSAGE", "").split(",") if i]
 
+    # 纯本地关键词检查必须先于 Sticker、Bio 等网络请求，保持命中后立即删除。
+    for msg in blacklist_message:
+        if keyword_hit(msg, user_message):
+            await message.delete()
+            return True
+
     sender_id = getattr(message.from_user, "id", None) or getattr(message.chat, "id", None)
     forward_id = getattr(message.forward_origin, "id", None)
     forward_title = getattr(message.forward_origin, "title", "")
@@ -333,11 +339,6 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
         logging.warning("potential spam message detected: %s", user_message)
         # just delete the message
         return True
-
-    for msg in blacklist_message:
-        if keyword_hit(msg, user_message):
-            await message.delete()
-            return True
 
     try:
         logging.info("Checking blacklist emojis...")

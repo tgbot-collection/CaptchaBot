@@ -18,10 +18,23 @@ add bot to your group, assign it with admin privileges, and you're good to go.
 
 environment variables:
 
-* APP_ID
+* API_ID
 * API_HASH
 * BOT_TOKEN
 * REDIS
+
+Spam 学习功能在 Story 001 中仅提供基础配置和样本结构，尚未接入在线 Bot。
+功能默认关闭：
+
+* `SPAM_LEARNING_ENABLED`：默认 `false`
+* `SPAM_ADMIN_IDS`：逗号分隔的 Telegram 管理员用户 ID
+* `D1_ACCOUNT_ID`
+* `D1_DATABASE_ID`
+* `D1_API_TOKEN`
+* `SPAM_MODEL_PATH`：默认 `models/spam_learning`
+
+启用 `SPAM_LEARNING_ENABLED` 时，管理员 ID 和三项 D1 配置必须存在。
+所有密钥只能通过环境变量或 Secret 注入。
 
 # Run
 

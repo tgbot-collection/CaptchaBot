@@ -1,3 +1,6 @@
 venv
-group.session
-group.session-journal
+env
+.env
+*.session
+*.session-journal
+.DS_Store

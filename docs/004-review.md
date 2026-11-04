@@ -10,10 +10,9 @@ Story 001–003。
 - 点击后原子更新 D1 为 `reviewed` 并写入 `spam` 或 `ham`；**写入成功后**再修改通知。安全处理重复点击、过期 callback 和 D1 故障。
 - 新增仅管理员可用的 `/dataset` 统计命令。禁止在群里公开完整个人信息。
 - 私聊通知发送失败时保留 D1 pending，记录脱敏错误；说明后续如何人工找回 pending（V1 不要求自动补发）。
-- 测试权限、HTML/Markdown 转义、消息长度、幂等、重启后回调以及 API 失败。
 
 ## 验收标准
-- Mock Telegram/D1 环境下跑通 `pending -> reviewed`。
+- `pending -> reviewed` 流程符合共享接口约定。
 - 未审核样本不会获得训练标签。
 - 没有模型时审核流程仍正常。
 - 填写 `docs/notes/004-notes.md` 并更新进度。

@@ -21,6 +21,15 @@
 
 手工种子样本：`source=manual`，`message.text=<每行文本>`，无法取得的字段全部 null，`label=spam`（仅限用户确认的样本）。不能伪装为 Pyrogram `Message` 实例。只保存必要的安全快照，不序列化 Pyrogram 内部对象或会话凭证。
 
+Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
+
+- `sample_from_message(message, matched_rule=..., bio=None)` 只同步读取消息已有字段，不执行 Telegram API 请求；缺失 Bio 保持 `null`。
+- `message.text` 与 `message.caption` 分开保存；纯媒体或只有 caption 时 `message.text=""`，不把 caption 伪装成 text。
+- `message.date` 输出 UTC ISO 8601；`media_type` 和 entity type 输出稳定字符串。entities 只保存类型、UTF-16 offset/length 以及 URL、关联用户 ID、语言、custom emoji ID 等必要字段。
+- 缺失 `from_user` 时保留字段全为 null 的 user 快照；Inline Bot 只保存 `via_bot.id` 和 `via_bot.username`。
+- 手工种子是已确认正例，因此使用 `source=manual`、`status=reviewed`、`label=spam`；在线关键词样本使用 `status=pending`、`label=null`。
+- 配置环境变量为 `SPAM_LEARNING_ENABLED`、`SPAM_ADMIN_IDS`、`D1_ACCOUNT_ID`、`D1_DATABASE_ID`、`D1_API_TOKEN`、`SPAM_MODEL_PATH`。功能默认关闭；开启时前三项 D1 标识/凭证和管理员 ID 必填。Story 001 不连接 D1、Telegram 审核或模型。
+
 ## D1 存储约定
 建议 `samples` 字段：`id`（整数主键）、`schema_version`、`source`、`message_json`、`text`、`status`（`pending`/`reviewed`）、`label`（NULL/`spam`/`ham`）、`model_version`、`prediction`、`prediction_score`、`created_at`、`reviewed_at`、`reviewed_by`、`review_chat_id`、`review_message_id`、`dedupe_key`。命中规则和可选 Bio 存在 `message_json` 中。为状态/标签和去重键建立索引。
 
