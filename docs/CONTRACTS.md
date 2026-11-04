@@ -31,9 +31,19 @@ Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 - 配置环境变量为 `SPAM_LEARNING_ENABLED`、`SPAM_ADMIN_IDS`、`D1_ACCOUNT_ID`、`D1_DATABASE_ID`、`D1_API_TOKEN`、`SPAM_MODEL_PATH`。功能默认关闭；开启时前三项 D1 标识/凭证和管理员 ID 必填。Story 001 不连接 D1、Telegram 审核或模型。
 
 ## D1 存储约定
-建议 `samples` 字段：`id`（整数主键）、`schema_version`、`source`、`message_json`、`text`、`status`（`pending`/`reviewed`）、`label`（NULL/`spam`/`ham`）、`model_version`、`prediction`、`prediction_score`、`created_at`、`reviewed_at`、`reviewed_by`、`review_chat_id`、`review_message_id`、`dedupe_key`。命中规则和可选 Bio 存在 `message_json` 中。为状态/标签和去重键建立索引。
+Story 002 已确定 `samples` 字段：`id`（整数主键）、`schema_version`、`source`、`message_json`、`text`、`status`（`pending`/`reviewed`）、`label`（NULL/`spam`/`ham`）、`model_version`、`prediction`、`prediction_score`、`created_at`、`reviewed_at`、`reviewed_by`、`review_chat_id`、`review_message_id`、`dedupe_key`。命中规则和可选 Bio 存在完整样本 JSON `message_json` 中。数据库通过 CHECK 约束强制 pending/NULL 与 reviewed/人工标签配对，并为状态/标签、reviewed 导出和唯一去重键建立索引。
 
-在线消息按 `source + chat_id + message_id` 去重；手工种子使用归一化文本 hash；**不能静默合并相互矛盾的标签**。
+在线消息的 `dedupe_key` 是带版本前缀的 `source + chat_id + message_id` SHA-256，不直接暴露这些标识符。同一消息重复调用 `create_pending()` 返回已有 ID，不创建新记录，也不覆盖已有状态或标签。手工种子的导入与文本 hash 留给 Story 007；**不能静默合并相互矛盾的标签**。
+
+Story 002 的公共存储接口：
+
+- `D1Client.create_pending(sample) -> int`：只接受带 `chat_id/message_id` 的 `keyword/pending` 样本。
+- `D1Client.review(id, label, admin_id) -> ReviewOutcome`：返回 `changed` 或 `already_reviewed`；ID 不存在抛出 `D1NotFoundError`。
+- `D1Client.get(id) -> StoredSample`：`message_json` 已解析为 `StoredSample.sample` 字典。
+- `D1Client.stats() -> SampleStats`：提供 total、pending、reviewed、spam、ham 数量。
+- `D1Client.export_reviewed(page_size=200) -> list[StoredSample]`：使用 `id` keyset 分页并按 `id ASC` 稳定排序。
+
+D1 Query REST 客户端使用参数化 SQL、5 秒默认超时、最多 2 次默认重试和默认 4 并发上限。只重试网络/超时、429 和有限的 5xx；同时校验 Cloudflare 顶层 `success` 与每条 SQL 的 `result[].success`。异常文本不包含 Token 或 SQL 参数。
 
 回调原子更新模式：
 

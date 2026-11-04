@@ -36,6 +36,26 @@ Spam 学习功能在 Story 001 中仅提供基础配置和样本结构，尚未�
 启用 `SPAM_LEARNING_ENABLED` 时，管理员 ID 和三项 D1 配置必须存在。
 所有密钥只能通过环境变量或 Secret 注入。
 
+## D1 Migration
+
+Story 002 的 Migration 位于 `migrations/001_create_samples.sql`。不需要真实凭证即可先用本地 SQLite 校验：
+
+```shell
+python -m spam_learning.d1_migrate
+```
+
+远程执行前，为 Token 配置目标账号内最小的 D1 Read 和 D1 Write 权限，并设置：
+
+```shell
+export D1_ACCOUNT_ID=...
+export D1_DATABASE_ID=...
+export D1_API_TOKEN=...
+python -m spam_learning.d1_migrate --apply
+```
+
+远程迁移通过 Cloudflare D1 REST API 执行，不需要 Cloudflare Worker。Migration 使用
+`IF NOT EXISTS`，可以重复执行；不要在命令行参数或日志中填写 Token。
+
 # Run
 
 ## Normal
