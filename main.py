@@ -21,6 +21,8 @@ from pyrogram.raw import functions as raw_functions
 from pyrogram.raw import types as raw_types
 from zhconv import convert
 
+from spam_learning import CaptureService, D1Client, SpamLearningConfig, sample_from_message
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logging.getLogger("apscheduler.executors.default").propagate = False
 
@@ -36,6 +38,9 @@ image = ImageCaptcha()
 PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
 IDLE_SECONDS = 120
 scheduler = AsyncIOScheduler()
+spam_learning_config = SpamLearningConfig.from_env()
+spam_capture_service: CaptureService | None = None
+spam_d1_client: D1Client | None = None
 
 
 def generate_char():
@@ -242,6 +247,33 @@ def keyword_hit(keyword: str, message: str | None) -> bool:
     return keyword.lower() in convert(message.lower(), "zh-cn")
 
 
+async def delete_rule_message(
+    message: "types.Message",
+    *,
+    matched_rule: str,
+    bio: str | None = None,
+) -> None:
+    """先同步快照，再执行原删除；删除尝试后非阻塞提交采集。"""
+
+    service = spam_capture_service
+    sample = None
+    if service is not None:
+        try:
+            sample = sample_from_message(message, matched_rule=matched_rule, bio=bio)
+        except Exception as exc:
+            # 快照异常不能阻止既有删除，也不记录可能含敏感数据的异常原文。
+            logging.warning("Spam 样本快照失败（%s）", type(exc).__name__)
+
+    try:
+        await message.delete()
+    finally:
+        if service is not None and sample is not None:
+            try:
+                service.submit(sample)
+            except Exception as exc:
+                logging.warning("Spam 样本入队失败（%s）", type(exc).__name__)
+
+
 async def delete_guest_bot_trigger(client: "Client", message: "types.Message"):
     caller_id = getattr(getattr(message, "guest_bot_caller_user", None), "id", None)
     if caller_id is None:
@@ -264,9 +296,9 @@ async def delete_guest_bot_trigger(client: "Client", message: "types.Message"):
             text = trigger.text or trigger.caption or ""
             if not bot_username or not re.search(r"@" + re.escape(bot_username) + r"\b", text, re.IGNORECASE):
                 return
-        await trigger.delete()
+        await delete_rule_message(trigger, matched_rule="message_signal:guest_bot_trigger")
     except Exception as e:
-        logging.warning("Failed to delete guest bot trigger %s in chat %s: %s", trigger_id, message.chat.id, e)
+        logging.warning("Failed to delete guest bot trigger (%s)", type(e).__name__)
 
 
 # only group incoming message, ignore service message
@@ -291,10 +323,10 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
     elif has_inline_buttons and sender_username != "benny_captcha_bot":
         reason = "inline_keyboard"
     if reason:
-        await message.delete()
+        await delete_rule_message(message, matched_rule=f"message_signal:{reason}")
         if is_guest_bot_reply:
             await delete_guest_bot_trigger(client, message)
-        logging.warning("potential spam message detected (%s): %s", reason, user_message)
+        logging.warning("potential spam message detected (%s)", reason)
         return True
 
     blacklist_id = [int(i) for i in os.getenv("BLACKLIST_ID", "").split(",") if i]
@@ -306,7 +338,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
     # 纯本地关键词检查必须先于 Sticker、Bio 等网络请求，保持命中后立即删除。
     for msg in blacklist_message:
         if keyword_hit(msg, user_message):
-            await message.delete()
+            await delete_rule_message(message, matched_rule=f"blacklist_message:{msg}")
             return True
 
     sender_id = getattr(message.from_user, "id", None) or getattr(message.chat, "id", None)
@@ -324,19 +356,24 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
             )
         )
         if len(sticker_set.packs) == 1 or "点击直达" in sticker_set.set.title:
-            logging.info("spam sticker detected:%s", sender_id)
-            await message.delete()
+            logging.info("spam sticker detected")
+            sticker_reason = "single_pack" if len(sticker_set.packs) == 1 else "click_through_title"
+            await delete_rule_message(message, matched_rule=f"sticker_heuristic:{sticker_reason}")
             return True
 
     chat = await app.get_chat(message.from_user.id)
-    if (
-        message.contact
-        or user_message.startswith("https://t.me/+")
-        or "t.me/+" in (chat.bio or "")
-        or user_sticker in blacklist_sticker
-    ):
-        await message.delete()
-        logging.warning("potential spam message detected: %s", user_message)
+    direct_rule = None
+    if message.contact:
+        direct_rule = "contact"
+    elif user_message.startswith("https://t.me/+"):
+        direct_rule = "invite_link_message"
+    elif "t.me/+" in (chat.bio or ""):
+        direct_rule = "invite_link_bio"
+    elif user_sticker in blacklist_sticker:
+        direct_rule = f"blacklist_sticker:{user_sticker}"
+    if direct_rule is not None:
+        await delete_rule_message(message, matched_rule=direct_rule, bio=chat.bio)
+        logging.warning("potential spam message detected (%s)", direct_rule.split(":", 1)[0])
         # just delete the message
         return True
 
@@ -349,15 +386,18 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
     except AttributeError:
         emoji_id = None
     emoji_set = None
+    matched_rules = []
     if emoji_id:
         emoji_set = await app.get_custom_emoji_stickers([emoji_id])
     if emoji_set and emoji_set[0].set_name in blacklist_emoji:
         is_ban = True
+        matched_rules.append(f"blacklist_emoji:{emoji_set[0].set_name}")
 
     logging.info("Checking blacklist names...")
     for name in blacklist_name:
         if keyword_hit(name, forward_title) and message.document and forward_type == enums.ChatType.CHANNEL:
             is_ban = True
+            matched_rules.append(f"blacklist_name:{name}")
             break
         if (
             keyword_hit(name, getattr(message.from_user, "username", ""))
@@ -365,26 +405,54 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
             or keyword_hit(name, getattr(message.from_user, "last_name", ""))
         ):
             is_ban = True
+            matched_rules.append(f"blacklist_name:{name}")
             break
 
     logging.info("Checking blacklist forward ids...")
     if sender_id in blacklist_id or forward_id in blacklist_id:
         is_ban = True
+        matched_rules.append("blacklist_id")
 
     if is_ban:
-        logging.info("prepress bad user: %s", sender_id)
-        await message.delete()
+        logging.info("prepress bad user")
+        await delete_rule_message(message, matched_rule="|".join(matched_rules), bio=chat.bio)
         await ban_user(message.chat.id, sender_id)
     else:
-        logging.info("Good user and message: %s", sender_id)
+        logging.info("Good user and message")
     return is_ban
 
 
 @app.on_start()
 async def startup(client):
+    global spam_capture_service, spam_d1_client
+    if spam_learning_config.enabled:
+        spam_d1_client = D1Client.from_config(spam_learning_config)
+        spam_capture_service = CaptureService(
+            client,
+            spam_d1_client,
+            queue_size=spam_learning_config.capture_queue_size,
+            worker_count=spam_learning_config.capture_workers,
+            bio_timeout=spam_learning_config.bio_timeout_seconds,
+            bio_cache_ttl=spam_learning_config.bio_cache_ttl_seconds,
+            bio_cache_size=spam_learning_config.bio_cache_size,
+            shutdown_timeout=spam_learning_config.capture_shutdown_timeout_seconds,
+        )
+        spam_capture_service.start()
+        logging.info("Spam 规则样本采集已启动")
     scheduler.add_job(check_idle_verification, "interval", seconds=15)
     scheduler.start()
     logging.info("Scheduler started!")
+
+
+@app.on_stop()
+async def shutdown(client):
+    global spam_capture_service, spam_d1_client
+    if spam_capture_service is not None:
+        await spam_capture_service.aclose()
+        spam_capture_service = None
+    if spam_d1_client is not None:
+        await spam_d1_client.aclose()
+        spam_d1_client = None
 
 
 if __name__ == "__main__":

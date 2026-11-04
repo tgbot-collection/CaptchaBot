@@ -57,7 +57,7 @@ class SQLiteD1Transport:
 
 def make_sample(*, chat_id: int = -100123, message_id: int = 42) -> SpamSample:
     return SpamSample(
-        source="keyword",
+        source="rule",
         message=MessageSnapshot(
             chat_id=chat_id,
             message_id=message_id,
@@ -217,6 +217,40 @@ class D1ResponseHandlingTests(unittest.IsolatedAsyncioTestCase):
 
 
 class D1ConfigTests(unittest.TestCase):
+    def test_capture_config_defaults_and_overrides(self) -> None:
+        defaults = SpamLearningConfig.from_env({})
+        self.assertEqual(
+            (
+                defaults.capture_queue_size,
+                defaults.capture_workers,
+                defaults.bio_timeout_seconds,
+                defaults.bio_cache_ttl_seconds,
+                defaults.bio_cache_size,
+                defaults.capture_shutdown_timeout_seconds,
+            ),
+            (100, 2, 2.0, 300.0, 1000, 5.0),
+        )
+        configured = SpamLearningConfig.from_env(
+            {
+                "SPAM_CAPTURE_QUEUE_SIZE": "7",
+                "SPAM_CAPTURE_WORKERS": "3",
+                "SPAM_BIO_TIMEOUT_SECONDS": "1.5",
+                "SPAM_BIO_CACHE_TTL_SECONDS": "60",
+                "SPAM_BIO_CACHE_SIZE": "25",
+                "SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS": "4",
+            }
+        )
+        self.assertEqual(configured.capture_queue_size, 7)
+        self.assertEqual(configured.capture_workers, 3)
+        self.assertEqual(configured.bio_timeout_seconds, 1.5)
+        self.assertEqual(configured.bio_cache_ttl_seconds, 60.0)
+        self.assertEqual(configured.bio_cache_size, 25)
+        self.assertEqual(configured.capture_shutdown_timeout_seconds, 4.0)
+
+    def test_capture_config_rejects_non_positive_values(self) -> None:
+        with self.assertRaisesRegex(ConfigError, "SPAM_CAPTURE_QUEUE_SIZE"):
+            SpamLearningConfig.from_env({"SPAM_CAPTURE_QUEUE_SIZE": "0"})
+
     def test_d1_config_can_be_required_while_feature_is_disabled(self) -> None:
         config = SpamLearningConfig.from_env(
             {

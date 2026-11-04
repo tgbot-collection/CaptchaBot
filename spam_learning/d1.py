@@ -167,8 +167,8 @@ class D1Client:
         await self._execute(sql, ())
 
     async def create_pending(self, sample: SpamSample) -> int:
-        if sample.source != "keyword" or sample.status != "pending" or sample.label is not None:
-            raise ValueError("create_pending 只接受未标注的 keyword/pending 样本")
+        if sample.source != "rule" or sample.status != "pending" or sample.label is not None:
+            raise ValueError("create_pending 只接受未标注的 rule/pending 样本")
         if sample.message.chat_id is None or sample.message.message_id is None:
             raise ValueError("在线样本必须包含 chat_id 和 message_id")
 

@@ -23,8 +23,7 @@ environment variables:
 * BOT_TOKEN
 * REDIS
 
-Spam 学习功能在 Story 001 中仅提供基础配置和样本结构，尚未接入在线 Bot。
-功能默认关闭：
+Spam 学习功能已接入现有规则删除路径，功能默认关闭：
 
 * `SPAM_LEARNING_ENABLED`：默认 `false`
 * `SPAM_ADMIN_IDS`：逗号分隔的 Telegram 管理员用户 ID
@@ -32,9 +31,16 @@ Spam 学习功能在 Story 001 中仅提供基础配置和样本结构，尚未�
 * `D1_DATABASE_ID`
 * `D1_API_TOKEN`
 * `SPAM_MODEL_PATH`：默认 `models/spam_learning`
+* `SPAM_CAPTURE_QUEUE_SIZE`：有界队列容量，默认 `100`
+* `SPAM_CAPTURE_WORKERS`：后台采集 worker 数，默认 `2`
+* `SPAM_BIO_TIMEOUT_SECONDS`：Bio 查询超时，默认 `2.0`
+* `SPAM_BIO_CACHE_TTL_SECONDS`：Bio 缓存 TTL，默认 `300.0`
+* `SPAM_BIO_CACHE_SIZE`：Bio 缓存最大条目数，默认 `1000`
+* `SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS`：关停排空超时，默认 `5.0`
 
 启用 `SPAM_LEARNING_ENABLED` 时，管理员 ID 和三项 D1 配置必须存在。
 所有密钥只能通过环境变量或 Secret 注入。
+规则删除前只做同步内存快照；Bio 和 D1 请求在有界后台队列中执行。队列已满时丢弃采集任务，不影响删除。
 
 ## D1 Migration
 
