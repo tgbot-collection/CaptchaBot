@@ -23,6 +23,7 @@ from .d1 import (
     SampleStats,
     StoredSample,
 )
+from .inference import InferenceService, ModelStatus, render_model_status
 from .review import ReviewService, render_dataset_stats, render_pending_notification
 
 __all__ = [
@@ -36,6 +37,8 @@ __all__ = [
     "D1NotFoundError",
     "EntitySnapshot",
     "MessageSnapshot",
+    "InferenceService",
+    "ModelStatus",
     "ModelSuggestion",
     "SpamLearningConfig",
     "SpamSample",
@@ -48,5 +51,6 @@ __all__ = [
     "sample_from_message",
     "sample_from_seed_text",
     "render_dataset_stats",
+    "render_model_status",
     "render_pending_notification",
 ]

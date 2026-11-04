@@ -86,6 +86,7 @@ class SpamLearningConfig:
     model_path: Path = Path("models/spam_learning")
     capture_queue_size: int = 100
     capture_workers: int = 2
+    inference_concurrency: int = 2
     bio_timeout_seconds: float = 2.0
     bio_cache_ttl_seconds: float = 300.0
     bio_cache_size: int = 1000
@@ -115,6 +116,9 @@ class SpamLearningConfig:
             ),
             capture_workers=_parse_positive_int(
                 "SPAM_CAPTURE_WORKERS", values.get("SPAM_CAPTURE_WORKERS"), default=2
+            ),
+            inference_concurrency=_parse_positive_int(
+                "SPAM_INFERENCE_CONCURRENCY", values.get("SPAM_INFERENCE_CONCURRENCY"), default=2
             ),
             bio_timeout_seconds=_parse_positive_float(
                 "SPAM_BIO_TIMEOUT_SECONDS", values.get("SPAM_BIO_TIMEOUT_SECONDS"), default=2.0

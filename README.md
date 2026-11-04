@@ -33,6 +33,7 @@ Spam 学习功能已接入现有规则删除路径，功能默认关闭：
 * `SPAM_MODEL_PATH`：默认 `models/spam_learning`
 * `SPAM_CAPTURE_QUEUE_SIZE`：有界队列容量，默认 `100`
 * `SPAM_CAPTURE_WORKERS`：后台采集 worker 数，默认 `2`
+* `SPAM_INFERENCE_CONCURRENCY`：本地模型推理最大并发数，默认 `2`
 * `SPAM_BIO_TIMEOUT_SECONDS`：Bio 查询超时，默认 `2.0`
 * `SPAM_BIO_CACHE_TTL_SECONDS`：Bio 缓存 TTL，默认 `300.0`
 * `SPAM_BIO_CACHE_SIZE`：Bio 缓存最大条目数，默认 `1000`
@@ -42,7 +43,8 @@ Spam 学习功能已接入现有规则删除路径，功能默认关闭：
 所有密钥只能通过环境变量或 Secret 注入。
 规则删除前只做同步内存快照；Bio 和 D1 请求在有界后台队列中执行。队列已满时丢弃采集任务，不影响删除。
 只有 D1 pending 写入成功后才会私聊该管理员。管理员可在 Bot 私聊中使用 `/dataset`
-查看聚合统计，不会返回消息全文或个人信息。
+查看聚合统计，使用 `/model` 查看模型可用性、类型、版本和预测语义；这两个命令都不会
+向其他用户开放。
 
 审核通知发送失败时样本仍保留为 pending，V1 不自动补发。可先用 `/dataset` 确认
 pending 数量，然后在 Cloudflare D1 Console 中定位未审核记录：
@@ -94,8 +96,11 @@ python -m spam_learning.seed_model --model models/spam_learning --text "测试�
 
 模型包由 `manifest.json` 和内容哈希命名的 JSON artifact 构成。加载时校验 SHA-256、
 格式版本、路径和结构；不使用 `pickle` 或 `joblib`，也不应加载来源不可信的模型目录。
-相同语料和参数会生成相同模型版本与字节内容。Story 005 不会在 Bot 启动时加载模型，
-线上建议接入属于 Story 006。
+相同语料和参数会生成相同模型版本与字节内容。Story 006 在 Spam 学习功能启动时加载一次
+模型，并在删除完成后的有界后台采集路径中推理。推理在线程池执行并受
+`SPAM_INFERENCE_CONCURRENCY` 限制；加载或推理失败时记录 `unavailable`，仍继续写入
+D1 pending 并发送人工审核通知。推理日志只记录 decision 和耗时，不记录消息原文、Bio
+或最近样本。
 
 ## D1 Migration
 

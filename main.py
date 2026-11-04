@@ -25,9 +25,11 @@ from spam_learning import (
     CaptureService,
     D1Client,
     D1Error,
+    InferenceService,
     ReviewService,
     SpamLearningConfig,
     sample_from_message,
+    render_model_status,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -49,6 +51,7 @@ spam_learning_config = SpamLearningConfig.from_env()
 spam_capture_service: CaptureService | None = None
 spam_d1_client: D1Client | None = None
 spam_review_service: ReviewService | None = None
+spam_inference_service: InferenceService | None = None
 
 
 def generate_char():
@@ -75,6 +78,16 @@ async def dataset_handler(client: "Client", message: "types.Message"):
         await message.reply_text("数据集统计暂时不可用，请稍后重试。")
         return
     await message.reply_text(text)
+
+
+@app.on_message(filters.command("model") & filters.private)
+async def model_handler(client: "Client", message: "types.Message"):
+    service = spam_inference_service
+    actor_id = getattr(getattr(message, "from_user", None), "id", None)
+    if service is None or actor_id != spam_learning_config.admin_id:
+        await message.reply_text("你没有查看模型状态的权限。")
+        return
+    await message.reply_text(render_model_status(service.status))
 
 
 @app.on_message(filters.new_chat_members)  # only service message
@@ -457,7 +470,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
 
 @app.on_start()
 async def startup(client):
-    global spam_capture_service, spam_d1_client, spam_review_service
+    global spam_capture_service, spam_d1_client, spam_review_service, spam_inference_service
     if spam_learning_config.enabled:
         assert spam_learning_config.admin_id is not None
         spam_d1_client = D1Client.from_config(spam_learning_config)
@@ -466,10 +479,15 @@ async def startup(client):
             spam_d1_client,
             admin_id=spam_learning_config.admin_id,
         )
+        spam_inference_service = InferenceService.from_path(
+            str(spam_learning_config.model_path),
+            max_concurrency=spam_learning_config.inference_concurrency,
+        )
         spam_capture_service = CaptureService(
             client,
             spam_d1_client,
             spam_review_service,
+            inference=spam_inference_service,
             queue_size=spam_learning_config.capture_queue_size,
             worker_count=spam_learning_config.capture_workers,
             bio_timeout=spam_learning_config.bio_timeout_seconds,
@@ -478,7 +496,10 @@ async def startup(client):
             shutdown_timeout=spam_learning_config.capture_shutdown_timeout_seconds,
         )
         spam_capture_service.start()
-        logging.info("Spam 规则样本采集已启动")
+        logging.info(
+            "Spam 规则样本采集已启动，模型可用性=%s",
+            spam_inference_service.status.available,
+        )
     scheduler.add_job(check_idle_verification, "interval", seconds=15)
     scheduler.start()
     logging.info("Scheduler started!")
@@ -486,11 +507,12 @@ async def startup(client):
 
 @app.on_stop()
 async def shutdown(client):
-    global spam_capture_service, spam_d1_client, spam_review_service
+    global spam_capture_service, spam_d1_client, spam_review_service, spam_inference_service
     if spam_capture_service is not None:
         await spam_capture_service.aclose()
         spam_capture_service = None
     spam_review_service = None
+    spam_inference_service = None
     if spam_d1_client is not None:
         await spam_d1_client.aclose()
         spam_d1_client = None

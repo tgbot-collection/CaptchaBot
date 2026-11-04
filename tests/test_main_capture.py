@@ -6,6 +6,7 @@ import unittest
 from unittest.mock import patch
 
 import main
+from spam_learning import ModelStatus, SpamLearningConfig
 
 
 class RecordingCapture:
@@ -106,6 +107,39 @@ class KeywordHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(message.deleted)
         self.assertEqual(len(capture.samples), 1)
         self.assertEqual(capture.samples[0].matched_rule, "blacklist_message:收米")
+
+
+class ModelHandlerTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.original_service = main.spam_inference_service
+        self.original_config = main.spam_learning_config
+
+    async def asyncTearDown(self) -> None:
+        main.spam_inference_service = self.original_service
+        main.spam_learning_config = self.original_config
+
+    async def test_only_configured_admin_can_view_model_status(self) -> None:
+        class FakeInference:
+            status = ModelStatus(True, "similarity", "seed-v1")
+
+        class CommandMessage:
+            def __init__(self, actor_id: int) -> None:
+                self.from_user = SimpleNamespace(id=actor_id)
+                self.replies: list[str] = []
+
+            async def reply_text(self, text: str) -> None:
+                self.replies.append(text)
+
+        main.spam_learning_config = SpamLearningConfig(admin_id=123)
+        main.spam_inference_service = FakeInference()
+        admin_message = CommandMessage(123)
+        other_message = CommandMessage(456)
+
+        await main.model_handler(SimpleNamespace(), admin_message)
+        await main.model_handler(SimpleNamespace(), other_message)
+
+        self.assertIn("版本: seed-v1", admin_message.replies[0])
+        self.assertEqual(other_message.replies, ["你没有查看模型状态的权限。"])
 
 
 if __name__ == "__main__":

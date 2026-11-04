@@ -9,7 +9,7 @@ import logging
 import time
 from typing import Any, Protocol
 
-from .schemas import SpamSample
+from .schemas import ModelSuggestion, SpamSample
 
 
 class PendingSampleStore(Protocol):
@@ -18,6 +18,10 @@ class PendingSampleStore(Protocol):
 
 class PendingSampleNotifier(Protocol):
     async def notify_pending(self, sample_id: int, sample: SpamSample) -> None: ...
+
+
+class SampleInference(Protocol):
+    async def enrich(self, sample: SpamSample) -> SpamSample: ...
 
 
 class CaptureService:
@@ -29,6 +33,7 @@ class CaptureService:
         store: PendingSampleStore,
         notifier: PendingSampleNotifier | None = None,
         *,
+        inference: SampleInference | None = None,
         queue_size: int = 100,
         worker_count: int = 2,
         bio_timeout: float = 2.0,
@@ -52,6 +57,7 @@ class CaptureService:
         self._telegram = telegram_client
         self._store = store
         self._notifier = notifier
+        self._inference = inference
         self._queue: asyncio.Queue[SpamSample] = asyncio.Queue(maxsize=queue_size)
         self._worker_count = worker_count
         self._bio_timeout = bio_timeout
@@ -110,6 +116,7 @@ class CaptureService:
             sample = await self._queue.get()
             try:
                 enriched = await self._with_bio(sample)
+                enriched = await self._with_prediction(enriched)
                 sample_id = await self._store.create_pending(enriched)
                 if self._notifier is not None:
                     try:
@@ -122,6 +129,24 @@ class CaptureService:
                 logging.warning("Spam 样本后台采集失败（%s）", type(exc).__name__)
             finally:
                 self._queue.task_done()
+
+    async def _with_prediction(self, sample: SpamSample) -> SpamSample:
+        if self._inference is None:
+            return sample
+        try:
+            return await self._inference.enrich(sample)
+        except Exception as exc:
+            # 即使推理服务自身出现意外故障，也必须继续写入 pending。
+            logging.warning("Spam 模型建议生成失败（%s）", type(exc).__name__)
+            return replace(
+                sample,
+                model=ModelSuggestion(
+                    version=None,
+                    kind="similarity",
+                    decision="unavailable",
+                    score=None,
+                ),
+            )
 
     async def _with_bio(self, sample: SpamSample) -> SpamSample:
         user_id = sample.user.id

@@ -48,10 +48,17 @@ def _model_text(model: ModelSuggestion | None) -> str:
     if model is None:
         return "暂无（不影响人工审核）"
     decision = _safe(model.decision, 120)
-    if model.decision == "unknown":
+    if model.decision == "spam_like":
+        decision += "（与已确认 Spam 种子较相似，仅供参考）"
+    elif model.decision == "unknown":
         decision += "（无法判断，不等于 Ham）"
-    score = "" if model.score is None else f" / score={model.score:.4f}"
-    return f"{decision}{score} / {_safe(model.kind, 120)} / {_safe(model.version, 120)}"
+    elif model.decision == "unavailable":
+        decision += "（模型不可用，不影响保存和人工审核）"
+    score = "无" if model.score is None else f"{model.score:.4f}"
+    return (
+        f"{decision} / 相似度={score}（不是概率） / "
+        f"{_safe(model.kind, 120)} / 版本={_safe(model.version, 120)}"
+    )
 
 
 def render_pending_notification(sample_id: int, sample: SpamSample) -> str:
