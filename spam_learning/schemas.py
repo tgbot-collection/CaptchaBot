@@ -9,7 +9,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-_SOURCES = frozenset({"keyword", "manual"})
+_SOURCES = frozenset({"rule", "manual"})
 _STATUSES = frozenset({"pending", "reviewed"})
 _LABELS = frozenset({"spam", "ham"})
 
@@ -203,7 +203,7 @@ def sample_from_message(
     entity_source = getattr(message, "entities", None) if text is not None else getattr(message, "caption_entities", None)
 
     return SpamSample(
-        source="keyword",
+        source="rule",
         message=MessageSnapshot(
             chat_id=getattr(chat, "id", None),
             message_id=getattr(message, "id", None),

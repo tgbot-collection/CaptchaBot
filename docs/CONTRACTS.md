@@ -1,4 +1,4 @@
-# 共享接口约定（草案；Story 001 必须结合真实仓库确认）
+# 共享接口约定
 
 ## 统一样本结构 v1
 以下只是示例，**不是真实 Telegram 记录**：
@@ -6,11 +6,11 @@
 ```json
 {
   "schema_version": 1,
-  "source": "keyword",
+  "source": "rule",
   "message": {"chat_id": -100123, "message_id": 42, "date": "2026-11-04T08:00:00Z", "text": "帮我收米 日入上W", "caption": null, "entities": [], "media_type": null},
   "user": {"id": 12345, "username": null, "first_name": "Example", "last_name": null, "is_premium": null, "bio": null},
   "via_bot": {"id": null, "username": null},
-  "matched_rule": "收米",
+  "matched_rule": "blacklist_message:收米",
   "model": {"version": "v0", "kind": "similarity", "decision": "spam_like", "score": 0.83},
   "label": null,
   "status": "pending"
@@ -27,17 +27,18 @@ Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 - `message.text` 与 `message.caption` 分开保存；纯媒体或只有 caption 时 `message.text=""`，不把 caption 伪装成 text。
 - `message.date` 输出 UTC ISO 8601；`media_type` 和 entity type 输出稳定字符串。entities 只保存类型、UTF-16 offset/length 以及 URL、关联用户 ID、语言、custom emoji ID 等必要字段。
 - 缺失 `from_user` 时保留字段全为 null 的 user 快照；Inline Bot 只保存 `via_bot.id` 和 `via_bot.username`。
-- 手工种子是已确认正例，因此使用 `source=manual`、`status=reviewed`、`label=spam`；在线关键词样本使用 `status=pending`、`label=null`。
-- 配置环境变量为 `SPAM_LEARNING_ENABLED`、`SPAM_ADMIN_IDS`、`D1_ACCOUNT_ID`、`D1_DATABASE_ID`、`D1_API_TOKEN`、`SPAM_MODEL_PATH`。功能默认关闭；开启时前三项 D1 标识/凭证和管理员 ID 必填。Story 001 不连接 D1、Telegram 审核或模型。
+- 手工种子是已确认正例，因此使用 `source=manual`、`status=reviewed`、`label=spam`；在线规则命中样本使用 `source=rule`、`status=pending`、`label=null`。Story 003 在 D1 尚未部署时将原草案的 `keyword` 扩展为 `rule`，避免对非关键词规则使用错误语义。
+- 基础配置环境变量为 `SPAM_LEARNING_ENABLED`、`SPAM_ADMIN_IDS`、`D1_ACCOUNT_ID`、`D1_DATABASE_ID`、`D1_API_TOKEN`、`SPAM_MODEL_PATH`。功能默认关闭；开启时前三项 D1 标识/凭证和管理员 ID 必填。
+- Story 003 增加 `SPAM_CAPTURE_QUEUE_SIZE`、`SPAM_CAPTURE_WORKERS`、`SPAM_BIO_TIMEOUT_SECONDS`、`SPAM_BIO_CACHE_TTL_SECONDS`、`SPAM_BIO_CACHE_SIZE`、`SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS`；具体默认值见 `README.md` 和 `docs/notes/003-notes.md`。
 
 ## D1 存储约定
 Story 002 已确定 `samples` 字段：`id`（整数主键）、`schema_version`、`source`、`message_json`、`text`、`status`（`pending`/`reviewed`）、`label`（NULL/`spam`/`ham`）、`model_version`、`prediction`、`prediction_score`、`created_at`、`reviewed_at`、`reviewed_by`、`review_chat_id`、`review_message_id`、`dedupe_key`。命中规则和可选 Bio 存在完整样本 JSON `message_json` 中。数据库通过 CHECK 约束强制 pending/NULL 与 reviewed/人工标签配对，并为状态/标签、reviewed 导出和唯一去重键建立索引。
 
-在线消息的 `dedupe_key` 是带版本前缀的 `source + chat_id + message_id` SHA-256，不直接暴露这些标识符。同一消息重复调用 `create_pending()` 返回已有 ID，不创建新记录，也不覆盖已有状态或标签。手工种子的导入与文本 hash 留给 Story 007；**不能静默合并相互矛盾的标签**。
+在线消息的 `dedupe_key` 是带版本前缀的 `source + chat_id + message_id` SHA-256，不直接暴露这些标识符。同一消息即使命中多条规则，重复调用 `create_pending()` 也返回已有 ID，不创建新记录，也不覆盖已有状态或标签。手工种子的导入与文本 hash 留给 Story 007；**不能静默合并相互矛盾的标签**。
 
 Story 002 的公共存储接口：
 
-- `D1Client.create_pending(sample) -> int`：只接受带 `chat_id/message_id` 的 `keyword/pending` 样本。
+- `D1Client.create_pending(sample) -> int`：只接受带 `chat_id/message_id` 的 `rule/pending` 样本。
 - `D1Client.review(id, label, admin_id) -> ReviewOutcome`：返回 `changed` 或 `already_reviewed`；ID 不存在抛出 `D1NotFoundError`。
 - `D1Client.get(id) -> StoredSample`：`message_json` 已解析为 `StoredSample.sample` 字典。
 - `D1Client.stats() -> SampleStats`：提供 total、pending、reviewed、spam、ham 数量。
@@ -59,11 +60,11 @@ UPDATE samples SET status='reviewed', label=?, reviewed_at=CURRENT_TIMESTAMP, re
 V0 的 `score` 表示**相似度**，不是 `P(spam)`；`unknown` 不等于 `ham`。模型不存在时返回 `unavailable`，审核仍可继续。推理不得触发管理动作。
 
 ## 故障处理
-- D1 写入失败：记录脱敏错误，不发送指向不存在记录的审核按钮；关键词删除不受影响。
+- D1 写入失败：记录脱敏错误，不发送指向不存在记录的审核按钮；现有规则删除不受影响。
 - Bio 查询失败：存 null，不能拖慢删除。
 - D1 写入成功但 Telegram 通知失败：记录仍是 pending；以后可人工补偿。
 - 模型失败：记为 `unavailable`，继续采集和审核。
 - 回调失败：按钮保持可重试，不能提前显示成功。
 
 ## 隐私和运维
-只采集必要字段；限制 D1 Token 权限和管理员 ID；V1 不采集头像。不存整个 `Message` 内部状态，只保存业务需要的 JSON 快照。上线前明确 pending/reviewed 原始个人信息的保留期限和删除机制。日志不得包含消息全文或 API Token。
+只采集必要字段；限制 D1 Token 权限和管理员 ID；V1 不采集头像。不存整个 `Message` 内部状态，只保存业务需要的 JSON 快照。上线前明确 pending/reviewed 原始个人信息的保留期限和删除机制。日志不得包含消息全文、完整 Bio、私密 Telegram 标识符或 API Token。

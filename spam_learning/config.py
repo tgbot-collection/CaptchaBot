@@ -54,6 +54,30 @@ def _optional_value(value: str | None) -> str | None:
     return normalized or None
 
 
+def _parse_positive_int(name: str, value: str | None, *, default: int) -> int:
+    if value is None:
+        return default
+    try:
+        result = int(value)
+    except ValueError as exc:
+        raise ConfigError(f"{name} 必须是正整数") from exc
+    if result <= 0:
+        raise ConfigError(f"{name} 必须是正整数")
+    return result
+
+
+def _parse_positive_float(name: str, value: str | None, *, default: float) -> float:
+    if value is None:
+        return default
+    try:
+        result = float(value)
+    except ValueError as exc:
+        raise ConfigError(f"{name} 必须是正数") from exc
+    if result <= 0:
+        raise ConfigError(f"{name} 必须是正数")
+    return result
+
+
 @dataclass(frozen=True, slots=True)
 class SpamLearningConfig:
     """默认关闭的 Spam 学习配置。
@@ -68,6 +92,12 @@ class SpamLearningConfig:
     d1_database_id: str | None = None
     d1_api_token: str | None = field(default=None, repr=False)
     model_path: Path = Path("models/spam_learning")
+    capture_queue_size: int = 100
+    capture_workers: int = 2
+    bio_timeout_seconds: float = 2.0
+    bio_cache_ttl_seconds: float = 300.0
+    bio_cache_size: int = 1000
+    capture_shutdown_timeout_seconds: float = 5.0
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "SpamLearningConfig":
@@ -88,6 +118,26 @@ class SpamLearningConfig:
             d1_database_id=_optional_value(values.get("D1_DATABASE_ID")),
             d1_api_token=_optional_value(values.get("D1_API_TOKEN")),
             model_path=Path(model_path_value),
+            capture_queue_size=_parse_positive_int(
+                "SPAM_CAPTURE_QUEUE_SIZE", values.get("SPAM_CAPTURE_QUEUE_SIZE"), default=100
+            ),
+            capture_workers=_parse_positive_int(
+                "SPAM_CAPTURE_WORKERS", values.get("SPAM_CAPTURE_WORKERS"), default=2
+            ),
+            bio_timeout_seconds=_parse_positive_float(
+                "SPAM_BIO_TIMEOUT_SECONDS", values.get("SPAM_BIO_TIMEOUT_SECONDS"), default=2.0
+            ),
+            bio_cache_ttl_seconds=_parse_positive_float(
+                "SPAM_BIO_CACHE_TTL_SECONDS", values.get("SPAM_BIO_CACHE_TTL_SECONDS"), default=300.0
+            ),
+            bio_cache_size=_parse_positive_int(
+                "SPAM_BIO_CACHE_SIZE", values.get("SPAM_BIO_CACHE_SIZE"), default=1000
+            ),
+            capture_shutdown_timeout_seconds=_parse_positive_float(
+                "SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS",
+                values.get("SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS"),
+                default=5.0,
+            ),
         )
         config.validate()
         return config

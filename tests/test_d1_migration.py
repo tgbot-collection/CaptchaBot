@@ -21,7 +21,7 @@ class D1MigrationTests(unittest.TestCase):
         self.connection.executescript(MIGRATION_PATH.read_text(encoding="utf-8"))
 
     def test_status_and_label_constraints(self) -> None:
-        common = (1, "keyword", "{}", "text", "dedupe")
+        common = (1, "rule", "{}", "text", "dedupe")
         self.connection.execute(
             """
             INSERT INTO samples (schema_version, source, message_json, text, status, label, dedupe_key)
@@ -33,25 +33,34 @@ class D1MigrationTests(unittest.TestCase):
             self.connection.execute(
                 """
                 INSERT INTO samples (schema_version, source, message_json, text, status, label, dedupe_key)
-                VALUES (1, 'keyword', '{}', 'text', 'pending', 'spam', 'bad-pending')
+                VALUES (1, 'rule', '{}', 'text', 'pending', 'spam', 'bad-pending')
                 """
             )
         with self.assertRaises(sqlite3.IntegrityError):
             self.connection.execute(
                 """
                 INSERT INTO samples (schema_version, source, message_json, text, status, label, dedupe_key)
-                VALUES (1, 'keyword', '{}', 'text', 'reviewed', NULL, 'bad-reviewed')
+                VALUES (1, 'rule', '{}', 'text', 'reviewed', NULL, 'bad-reviewed')
                 """
             )
 
     def test_dedupe_key_is_unique(self) -> None:
         sql = """
             INSERT INTO samples (schema_version, source, message_json, text, status, label, dedupe_key)
-            VALUES (1, 'keyword', '{}', 'text', 'pending', NULL, 'same-key')
+            VALUES (1, 'rule', '{}', 'text', 'pending', NULL, 'same-key')
         """
         self.connection.execute(sql)
         with self.assertRaises(sqlite3.IntegrityError):
             self.connection.execute(sql)
+
+    def test_legacy_keyword_source_is_rejected(self) -> None:
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.connection.execute(
+                """
+                INSERT INTO samples (schema_version, source, message_json, text, status, label, dedupe_key)
+                VALUES (1, 'keyword', '{}', 'text', 'pending', NULL, 'legacy-source')
+                """
+            )
 
 
 if __name__ == "__main__":
