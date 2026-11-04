@@ -60,6 +60,27 @@ UPDATE samples SET status='reviewed', label=?, reviewed_at=CURRENT_TIMESTAMP, re
 
 V0 的 `score` 表示**相似度**，不是 `P(spam)`；`unknown` 不等于 `ham`。模型不存在时返回 `unavailable`，审核仍可继续。推理不得触发管理动作。
 
+Story 005 已将接口实现为 `spam_learning.seed_model.PredictionResult` 和
+`SeedSimilarityModel.predict(sample)`；文本便捷接口是 `predict_text(text)`。有效模型只会输出
+`spam_like` 或 `unknown`，缺失、损坏或不受支持的模型由
+`SimilarityPredictor.from_path()` 降级为 `unavailable`，此时 `score` 和 `model_version` 为 null。
+有效模型中的空文本或没有已知特征的文本返回 `unknown`、`score=0.0`。
+
+`PredictionResult.model_version` 是预测接口字段；统一样本 JSON 中已有的
+`model.version` 保持不变。Story 006 接入时必须显式将前者映射到
+`ModelSuggestion.version`，不能新增第二个含义重复的样本字段。
+
+初始模型只使用 `message.text`，为空时回退到 `message.caption`，不使用种子中不存在的
+Bio、昵称或用户名特征。预处理和训练参数全部进入 manifest：NFKC、Latin casefold、默认移除
+已知零宽控制符、空白折叠、URL/mention 标记化、带文本边界的字符 2–5 gram、sublinear TF、
+平滑 IDF 和 L2 归一化。原始 Unicode 种子独立保留，用于 `nearest_example`。
+
+模型目录包含原子发布的 `manifest.json` 和内容哈希命名的 JSON artifact。模型版本由有序去重
+语料及全部训练参数的 SHA-256 派生，不写入当前时间；相同输入和参数必须字节级可复现。
+加载器校验 artifact SHA-256、格式版本、文件名和数据结构，不加载 `pickle`/`joblib`，且只允许
+使用本地可信模型目录。默认 `spam_like` 阈值 `0.65` 是无 Ham 条件下的启发式相似度阈值，
+不是经二分类校准的概率或质量承诺。
+
 ## 故障处理
 - D1 写入失败：记录脱敏错误，不发送指向不存在记录的审核按钮；现有规则删除不受影响。
 - Bio 查询失败：存 null，不能拖慢删除。

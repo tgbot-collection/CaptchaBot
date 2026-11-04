@@ -57,6 +57,46 @@ ORDER BY id ASC;
 `review_chat_id`/`review_message_id` 为 NULL 通常表示未成功记录审核通知，需要人工查看 D1
 中该样本并决定后续处理；不得因为规则命中而直接将它标为 Spam。
 
+## 初始相似度模型
+
+Story 005 提供只使用人工确认 Spam 正例的离线字符 n-gram TF-IDF 模型。它只输出
+`spam_like`、`unknown` 或 `unavailable` 建议；分数是余弦相似度，不是 Spam 概率，
+也不会触发删除、封禁或禁言。
+
+训练默认读取 UTF-8 的 `spam.txt`，每行一条，输出到现有 `SPAM_MODEL_PATH` 默认目录：
+
+```shell
+python -m spam_learning.seed_model --input spam.txt --output models/spam_learning
+```
+
+也可以使用 Make 目标；默认值与上面的命令一致：
+
+```shell
+make train-spam-model
+```
+
+需要使用虚拟环境或其他路径时可覆盖变量，例如：
+
+```shell
+make train-spam-model PYTHON=venv/bin/python SPAM_SEED_INPUT=spam.txt SPAM_MODEL_OUTPUT=models/spam_learning
+```
+
+训练并立即演示，或单独加载模型演示：
+
+```shell
+python -m spam_learning.seed_model --input spam.txt --output models/spam_learning --text "测试文本"
+python -m spam_learning.seed_model --model models/spam_learning --text "测试文本"
+```
+
+输出会显示最近的原始种子和“相似度”。默认阈值为 `0.65`，只是没有 Ham 数据时的
+保守启发式值，可在训练时用 `--threshold` 修改并固化到 manifest。默认移除常见零宽
+控制符；只有明确需要保留时才使用 `--keep-zero-width`。
+
+模型包由 `manifest.json` 和内容哈希命名的 JSON artifact 构成。加载时校验 SHA-256、
+格式版本、路径和结构；不使用 `pickle` 或 `joblib`，也不应加载来源不可信的模型目录。
+相同语料和参数会生成相同模型版本与字节内容。Story 005 不会在 Bot 启动时加载模型，
+线上建议接入属于 Story 006。
+
 ## D1 Migration
 
 Story 002 的 Migration 位于 `migrations/001_create_samples.sql`。不需要真实凭证即可先用本地 SQLite 校验：
