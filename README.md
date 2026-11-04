@@ -102,6 +102,58 @@ python -m spam_learning.seed_model --model models/spam_learning --text "测试�
 D1 pending 并发送人工审核通知。推理日志只记录 decision 和耗时，不记录消息原文、Bio
 或最近样本。
 
+## 人工审核数据重训
+
+Story 007 将导出、候选构建和批准拆成三个显式阶段。导出的 JSONL 包含人工审核消息原文，
+只能保存在受控本地目录；仓库默认忽略 `local/`。导出只读取 D1 中 `status=reviewed` 且标签为
+`spam`/`ham` 的记录，并与 `spam.txt` 合并：
+
+```shell
+python -m spam_learning.retrain export --seed spam.txt --output local/spam-retrain.jsonl
+```
+
+没有 Ham 时仍可构建相似度候选。输出为内容版本化候选目录，不会覆盖当前
+`SPAM_MODEL_PATH`：
+
+```shell
+python -m spam_learning.retrain build --dataset local/spam-retrain.jsonl --candidates models/candidates
+```
+
+只有明确传入 `--classifier`，并且 Spam/Ham 各自至少能形成两个独立模板组时，才会训练字符
+TF-IDF + Logistic Regression；否则安全回退为相似度候选。这个可评估条件不是质量保证。
+分组留出结果记录 Precision、Recall、误报数和混淆矩阵：
+
+```shell
+python -m spam_learning.retrain build \
+  --dataset local/spam-retrain.jsonl --candidates models/candidates --classifier
+```
+
+可选固定回归集为 UTF-8 JSONL，每行包含 `format_version=1`、人工标签 `label` 和 `text`，
+例如 `{"format_version":1,"label":"ham","text":"今晚一起吃饭"}`。真实 Telegram 内容不得提交
+到 Git。提供旧模型时必须同时提供回归集：
+
+```shell
+python -m spam_learning.retrain build \
+  --dataset local/spam-retrain.jsonl --classifier \
+  --regression local/regression.jsonl --old-model models/releases/<old-version>
+```
+
+构建只产生候选。检查 manifest、评估及回归报告后必须显式批准；批准前会重新安全加载并核对
+版本，已有 release 绝不覆盖：
+
+```shell
+python -m spam_learning.retrain approve \
+  --candidate models/candidates/<candidate> --releases models/releases --approved-by <operator>
+```
+
+批准不会修改运行中的 Bot，也不会自动部署。手动发布时将 `SPAM_MODEL_PATH` 设置为输出的
+`models/releases/<model-version>` 并重启；回滚时改回上一个 release 并重启。二分类
+`spam`/`ham` 仍只是管理员建议，分数是未校准 Spam 分数，不能触发删除、封禁或禁言。
+
+等价 Make 入口为 `make export-spam-dataset`、`make build-spam-candidate` 和
+`make approve-spam-candidate CANDIDATE=... APPROVED_BY=...`。分类器和回归参数建议直接使用
+Python CLI，避免 Make 变量隐式改变发布语义。
+
 ## D1 Migration
 
 Story 002 的 Migration 位于 `migrations/001_create_samples.sql`。不需要真实凭证即可先用本地 SQLite 校验：

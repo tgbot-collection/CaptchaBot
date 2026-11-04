@@ -132,6 +132,17 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("相似度=无（不是概率）", rendered)
         self.assertIn("版本=无", rendered)
 
+    async def test_classifier_score_is_marked_un_calibrated(self) -> None:
+        model = ModelSuggestion(
+            version="char-logreg-v1-0123456789abcdef",
+            kind="logistic_regression",
+            decision="spam",
+            score=0.75,
+        )
+        rendered = render_pending_notification(1, make_sample(model=model))
+        self.assertIn("Spam 分数=0.7500（未校准）", rendered)
+        self.assertNotIn("相似度=0.7500", rendered)
+
     async def test_existing_notification_is_not_sent_again(self) -> None:
         telegram = FakeTelegram()
         store = FakeStore()

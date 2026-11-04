@@ -7,6 +7,7 @@ import threading
 import time
 import unittest
 
+from spam_learning.binary_model import LabeledText, train_binary_model
 from spam_learning.inference import InferenceService, ModelStatus, render_model_status
 from spam_learning.schemas import MessageSnapshot, SpamSample
 from spam_learning.seed_model import PredictionResult, train_seed_model
@@ -27,6 +28,7 @@ def make_sample(text: str = "帮我收米") -> SpamSample:
 
 
 class BlockingPredictor:
+    kind = "similarity"
     available = True
     model_version = "test-v1"
 
@@ -46,6 +48,7 @@ class BlockingPredictor:
 
 
 class FailingPredictor:
+    kind = "similarity"
     available = False
     model_version = None
 
@@ -83,6 +86,29 @@ class InferenceServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(enriched.model.version)
         self.assertIsNone(enriched.model.score)
 
+    async def test_loads_approved_format_classifier_as_advice(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            train_binary_model(
+                [
+                    LabeledText("兼职推广", "spam"),
+                    LabeledText("投资返利", "spam"),
+                    LabeledText("今晚吃饭", "ham"),
+                    LabeledText("讨论天气", "ham"),
+                ],
+                root / "model",
+                dataset_sha256="0" * 64,
+            )
+            service = InferenceService.from_path(str(root / "model"))
+            enriched = await service.enrich(make_sample("兼职推广"))
+
+        self.assertTrue(service.status.available)
+        self.assertEqual(service.status.kind, "logistic_regression")
+        assert enriched.model is not None
+        self.assertEqual(enriched.model.kind, "logistic_regression")
+        self.assertIn(enriched.model.decision, {"spam", "ham"})
+        self.assertIsNotNone(enriched.model.score)
+
     async def test_runtime_failure_becomes_unavailable(self) -> None:
         service = InferenceService(FailingPredictor())
 
@@ -109,6 +135,11 @@ class InferenceServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("unknown", text)
         self.assertIn("unavailable", text)
         self.assertIn("相似度，不是 Spam 概率", text)
+        classifier_text = render_model_status(
+            ModelStatus(available=True, kind="logistic_regression", version="test", built_at=None)
+        )
+        self.assertIn("不能触发任何管理动作", classifier_text)
+        self.assertIn("未校准", classifier_text)
 
 
 if __name__ == "__main__":

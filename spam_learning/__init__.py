@@ -24,6 +24,7 @@ from .d1 import (
     StoredSample,
 )
 from .inference import InferenceService, ModelStatus, render_model_status
+from .model_loader import LocalPredictor
 from .review import ReviewService, render_dataset_stats, render_pending_notification
 
 __all__ = [
@@ -39,6 +40,7 @@ __all__ = [
     "MessageSnapshot",
     "InferenceService",
     "ModelStatus",
+    "LocalPredictor",
     "ModelSuggestion",
     "SpamLearningConfig",
     "SpamSample",
