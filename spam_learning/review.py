@@ -55,8 +55,13 @@ def _model_text(model: ModelSuggestion | None) -> str:
     elif model.decision == "unavailable":
         decision += "（模型不可用，不影响保存和人工审核）"
     score = "无" if model.score is None else f"{model.score:.4f}"
+    score_text = (
+        f"Spam 分数={score}（未校准）"
+        if model.kind == "logistic_regression"
+        else f"相似度={score}（不是概率）"
+    )
     return (
-        f"{decision} / 相似度={score}（不是概率） / "
+        f"{decision} / {score_text} / "
         f"{_safe(model.kind, 120)} / 版本={_safe(model.version, 120)}"
     )
 

@@ -9,10 +9,13 @@ import time
 from typing import Protocol
 
 from .schemas import ModelSuggestion, SpamSample
-from .seed_model import MODEL_KIND, PredictionResult, SimilarityPredictor
+from .model_loader import LocalPredictor
+from .seed_model import MODEL_KIND, PredictionResult
 
 
 class Predictor(Protocol):
+    kind: str
+
     @property
     def available(self) -> bool: ...
 
@@ -41,14 +44,14 @@ class InferenceService:
 
     @classmethod
     def from_path(cls, path: str, *, max_concurrency: int = 2) -> "InferenceService":
-        return cls(SimilarityPredictor.from_path(path), max_concurrency=max_concurrency)
+        return cls(LocalPredictor.from_path(path), max_concurrency=max_concurrency)
 
     @property
     def status(self) -> ModelStatus:
         # V1 的确定性 manifest 不记录构建时间，不能用文件 mtime 冒充。
         return ModelStatus(
             available=self._predictor.available,
-            kind=MODEL_KIND,
+            kind=getattr(self._predictor, "kind", MODEL_KIND),
             version=self._predictor.model_version,
             built_at=None,
         )
@@ -61,7 +64,12 @@ class InferenceService:
         except Exception as exc:
             # 模型故障只能降级建议，不能阻断 D1 pending 或人工审核。
             logging.warning("Spam 模型推理失败（%s）", type(exc).__name__)
-            result = PredictionResult(MODEL_KIND, "unavailable", None, None)
+            result = PredictionResult(
+                getattr(self._predictor, "kind", MODEL_KIND),
+                "unavailable",
+                None,
+                None,
+            )
         duration_ms = (time.perf_counter() - started) * 1000
         logging.info(
             "Spam 模型推理完成 decision=%s duration_ms=%.3f",
@@ -82,14 +90,23 @@ def render_model_status(status: ModelStatus) -> str:
     availability = "可用" if status.available else "不可用"
     version = status.version or "无"
     built_at = status.built_at or "未记录"
+    if status.kind == "logistic_regression":
+        semantics = (
+            "spam / ham: 二分类模型建议，不能触发任何管理动作\n"
+            "分数是未校准的 Spam 分数，不应解释为可靠概率。"
+        )
+    else:
+        semantics = (
+            "spam_like: 与已确认 Spam 种子较相似，仅供参考\n"
+            "unknown: 未达到相似度阈值，不等于 Ham\n"
+            "分数表示余弦相似度，不是 Spam 概率。"
+        )
     return (
         "Spam 模型状态\n"
         f"可用性: {availability}\n"
         f"类型: {status.kind}\n"
         f"版本: {version}\n"
         f"构建日期: {built_at}\n\n"
-        "spam_like: 与已确认 Spam 种子较相似，仅供参考\n"
-        "unknown: 未达到相似度阈值，不等于 Ham\n"
-        "unavailable: 模型不可用，不影响保存和人工审核\n"
-        "分数表示余弦相似度，不是 Spam 概率。"
+        f"{semantics}\n"
+        "unavailable: 模型不可用，不影响保存和人工审核"
     )

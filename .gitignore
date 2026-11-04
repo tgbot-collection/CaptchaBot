@@ -142,3 +142,4 @@ dmypy.json
 /.idea/copilot.data.migration.agent.xml
 /.idea/copilot.data.migration.edit.xml
 /.idea/encodings.xml
+/local/

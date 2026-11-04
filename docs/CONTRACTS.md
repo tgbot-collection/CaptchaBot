@@ -85,11 +85,34 @@ Bio、昵称或用户名特征。预处理和训练参数全部进入 manifest�
 
 Story 006 的在线接入约定：
 
-- Bot 启动时从 `SPAM_MODEL_PATH` 加载一次 `SimilarityPredictor`；模型缺失或损坏不阻止启动。
+- Bot 启动时从 `SPAM_MODEL_PATH` 通过 `LocalPredictor` 加载一次受支持的本地模型；模型缺失或损坏不阻止启动。
 - 推理只发生在规则删除后的 `CaptureService` worker 中，通过线程池执行并由独立 semaphore 限流；任何推理异常都降级为 `unavailable`，不能阻止 D1 pending 和人工审核。
-- `PredictionResult` 显式映射为 `ModelSuggestion` 后，完整建议进入 `message_json`，并由 D1 独立列保存模型版本、decision 和相似度。
+- `PredictionResult` 显式映射为 `ModelSuggestion` 后，完整建议进入 `message_json`，并由 D1 独立列保存模型版本、decision 和 score。相似度模型的 score 是余弦相似度；二分类模型的 score 是未校准 Spam 分数。
 - 推理耗时日志只包含 decision 和 `duration_ms`，不包含消息原文、Bio、Telegram 私密标识符或 `nearest_example`。
-- 管理员私聊 `/model` 显示可用性、类型、版本和三种 decision 的语义。V1 manifest 为保证字节级复现不写构建时间，因此显示“未记录”，不能用文件 mtime 冒充构建日期。
+- 管理员私聊 `/model` 显示可用性、类型、版本和对应 decision/score 语义。V1 manifest 为保证字节级复现不写构建时间，因此显示“未记录”，不能用文件 mtime 冒充构建日期。
+
+Story 007 的离线重训和模型发布约定：
+
+- `python -m spam_learning.retrain export` 只调用 `D1Client.export_reviewed()`，并再次验证每条记录为
+  `status=reviewed`、`label=spam/ham` 和兼容的 `schema_version=1`。pending、规则命中和历史预测
+  均不能成为训练标签。
+- 导出 JSONL 保留原始 Unicode 文本和来源引用，特征归一化另存。相同归一化文本、相同标签时
+  合并来源；同一归一化文本出现相反标签时中止，不静默覆盖。
+- `DatasetRecord` 使用 `message.text`，为空时回退 `message.caption`。模板分组键由归一化模板的
+  SHA-256 摘要生成，不保存 Telegram 用户 ID；数据集使用 canonical JSON SHA-256 校验。
+- 相似度候选使用所有确认 Spam，Ham 为零也必须可构建。`--classifier` 只有在两类都能形成至少
+  两个模板组、从而得到两类齐全且无模板组交叉的训练/测试集时才生效；否则回退相似度候选。
+  该条件只表示能执行评估，不是质量保证。
+- 二分类类型为 `logistic_regression`，继续使用字符 2–5 gram TF-IDF，输出 `spam` 或 `ham`；
+  `score` 是未校准 Spam 分数，不能当成可靠概率，更不能触发管理动作。
+- `LocalPredictor` 按受信任本地 `manifest.json` 的 `kind` 加载 `similarity` 或
+  `logistic_regression` JSON artifact。两种模型都校验格式、内容哈希、路径和结构，不加载
+  `pickle`/`joblib`。
+- 候选 manifest 记录 dataset hash、类别/来源数量、参数、Schema 兼容性、可用的分组留出指标
+  及固定回归报告。没有固定回归集时不生成虚假对比；任何候选都必须用 `approve` 子命令显式批准。
+- 候选目录和 release 目录均拒绝覆盖。批准只复制经过安全加载校验的候选并写入独立
+  `approval.json`，不改变 Bot 配置、不重启进程、不自动部署。回滚通过恢复上一 release 的
+  `SPAM_MODEL_PATH` 并重启完成。
 
 ## 故障处理
 - D1 写入失败：记录脱敏错误，不发送指向不存在记录的审核按钮；现有规则删除不受影响。
