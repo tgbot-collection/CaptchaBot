@@ -99,11 +99,28 @@ class SpamLearningConfig:
         missing: list[str] = []
         if not self.admin_ids:
             missing.append("SPAM_ADMIN_IDS")
+        missing.extend(self._missing_d1_config())
+        if missing:
+            raise ConfigError("SPAM_LEARNING_ENABLED 开启时缺少配置：" + ", ".join(missing))
+
+    def _missing_d1_config(self) -> list[str]:
+        missing: list[str] = []
         if not self.d1_account_id:
             missing.append("D1_ACCOUNT_ID")
         if not self.d1_database_id:
             missing.append("D1_DATABASE_ID")
         if not self.d1_api_token:
             missing.append("D1_API_TOKEN")
+        return missing
+
+    def require_d1(self) -> tuple[str, str, str]:
+        """返回 D1 凭证；迁移工具可在主功能关闭时独立使用。"""
+
+        missing = self._missing_d1_config()
         if missing:
-            raise ConfigError("SPAM_LEARNING_ENABLED 开启时缺少配置：" + ", ".join(missing))
+            raise ConfigError("D1 操作缺少配置：" + ", ".join(missing))
+        # 上面的检查已排除 None；显式断言可帮助静态类型检查器收窄类型。
+        assert self.d1_account_id is not None
+        assert self.d1_database_id is not None
+        assert self.d1_api_token is not None
+        return self.d1_account_id, self.d1_database_id, self.d1_api_token

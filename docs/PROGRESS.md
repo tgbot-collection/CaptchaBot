@@ -3,7 +3,7 @@
 详细实现与交接记录放在 `docs/notes/`，**一个 Story 对应一份 Notes**。只有验收通过、Notes 已完整填写，才能标记完成。
 
 - [x] 001 — 初始化架构 · [Notes](notes/001-notes.md) · 已完成
-- [ ] 002 — D1 集成 · [Notes](notes/002-notes.md) · 未开始
+- [x] 002 — D1 集成 · [Notes](notes/002-notes.md) · 已完成
 - [ ] 003 — 消息采集 · [Notes](notes/003-notes.md) · 未开始
 - [ ] 004 — 管理员审核 · [Notes](notes/004-notes.md) · 未开始
 - [ ] 005 — 初始模型 · [Notes](notes/005-notes.md) · 未开始
