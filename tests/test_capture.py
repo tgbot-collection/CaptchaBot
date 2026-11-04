@@ -73,7 +73,72 @@ class RecordingNotifier:
             raise self.error
 
 
+class RecordingInference:
+    def __init__(self, *, error: Exception | None = None) -> None:
+        self.calls: list[SpamSample] = []
+        self.error = error
+
+    async def enrich(self, sample: SpamSample) -> SpamSample:
+        self.calls.append(sample)
+        if self.error is not None:
+            raise self.error
+        from dataclasses import replace
+        from spam_learning.schemas import ModelSuggestion
+
+        return replace(
+            sample,
+            model=ModelSuggestion(
+                version="seed-v1",
+                kind="similarity",
+                decision="spam_like",
+                score=0.9,
+            ),
+        )
+
+
 class CaptureServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_prediction_is_persisted_and_sent_after_bio_enrichment(self) -> None:
+        telegram = FakeTelegram(bio="简介")
+        store = RecordingStore()
+        notifier = RecordingNotifier()
+        inference = RecordingInference()
+        service = CaptureService(
+            telegram,
+            store,
+            notifier,
+            inference=inference,
+            worker_count=1,
+        )
+        service.start()
+        try:
+            self.assertTrue(service.submit(make_sample(1)))
+            await service.wait_until_idle()
+        finally:
+            await service.aclose()
+
+        self.assertEqual(inference.calls[0].user.bio, "简介")
+        self.assertEqual(store.samples[0].model.decision, "spam_like")
+        self.assertIs(notifier.calls[0][1], store.samples[0])
+
+    async def test_prediction_failure_still_writes_unavailable_pending(self) -> None:
+        store = RecordingStore()
+        service = CaptureService(
+            FakeTelegram(),
+            store,
+            inference=RecordingInference(error=RuntimeError("failed")),
+            worker_count=1,
+        )
+        service.start()
+        try:
+            self.assertTrue(service.submit(make_sample(1)))
+            await service.wait_until_idle()
+        finally:
+            await service.aclose()
+
+        self.assertEqual(len(store.samples), 1)
+        self.assertEqual(store.samples[0].model.decision, "unavailable")
+        self.assertIsNone(store.samples[0].model.version)
+
     async def test_notifies_only_after_pending_write_succeeds(self) -> None:
         telegram = FakeTelegram()
         store = RecordingStore()

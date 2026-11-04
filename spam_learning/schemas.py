@@ -108,7 +108,7 @@ class ViaBotSnapshot:
 
 @dataclass(frozen=True, slots=True)
 class ModelSuggestion:
-    version: str
+    version: str | None
     kind: str
     decision: str
     score: float | None

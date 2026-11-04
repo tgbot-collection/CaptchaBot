@@ -30,6 +30,7 @@ Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 - 手工种子是已确认正例，因此使用 `source=manual`、`status=reviewed`、`label=spam`；在线规则命中样本使用 `source=rule`、`status=pending`、`label=null`。Story 003 在 D1 尚未部署时将原草案的 `keyword` 扩展为 `rule`，避免对非关键词规则使用错误语义。
 - 基础配置环境变量为 `SPAM_LEARNING_ENABLED`、`SPAM_ADMIN_ID`、`D1_ACCOUNT_ID`、`D1_DATABASE_ID`、`D1_API_TOKEN`、`SPAM_MODEL_PATH`。功能默认关闭；开启时三项 D1 标识/凭证和单个正整数管理员 ID 必填。Story 004 根据实际运维需求将原多管理员草案 `SPAM_ADMIN_IDS` 收敛为单管理员，不保留旧环境变量兼容。
 - Story 003 增加 `SPAM_CAPTURE_QUEUE_SIZE`、`SPAM_CAPTURE_WORKERS`、`SPAM_BIO_TIMEOUT_SECONDS`、`SPAM_BIO_CACHE_TTL_SECONDS`、`SPAM_BIO_CACHE_SIZE`、`SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS`；具体默认值见 `README.md` 和 `docs/notes/003-notes.md`。
+- Story 006 增加 `SPAM_INFERENCE_CONCURRENCY`，默认 `2`，必须为正整数；只限制本地模型推理，不改变采集队列和 D1 客户端的既有并发上限。
 
 ## D1 存储约定
 Story 002 已确定 `samples` 字段：`id`（整数主键）、`schema_version`、`source`、`message_json`、`text`、`status`（`pending`/`reviewed`）、`label`（NULL/`spam`/`ham`）、`model_version`、`prediction`、`prediction_score`、`created_at`、`reviewed_at`、`reviewed_by`、`review_chat_id`、`review_message_id`、`dedupe_key`。命中规则和可选 Bio 存在完整样本 JSON `message_json` 中。数据库通过 CHECK 约束强制 pending/NULL 与 reviewed/人工标签配对，并为状态/标签、reviewed 导出和唯一去重键建立索引。
@@ -68,7 +69,8 @@ Story 005 已将接口实现为 `spam_learning.seed_model.PredictionResult` 和
 
 `PredictionResult.model_version` 是预测接口字段；统一样本 JSON 中已有的
 `model.version` 保持不变。Story 006 接入时必须显式将前者映射到
-`ModelSuggestion.version`，不能新增第二个含义重复的样本字段。
+`ModelSuggestion.version`，不能新增第二个含义重复的样本字段。模型不可用时二者均为
+`null`；`ModelSuggestion.version` 因此是可空字段，不能伪造版本字符串。
 
 初始模型只使用 `message.text`，为空时回退到 `message.caption`，不使用种子中不存在的
 Bio、昵称或用户名特征。预处理和训练参数全部进入 manifest：NFKC、Latin casefold、默认移除
@@ -80,6 +82,14 @@ Bio、昵称或用户名特征。预处理和训练参数全部进入 manifest�
 加载器校验 artifact SHA-256、格式版本、文件名和数据结构，不加载 `pickle`/`joblib`，且只允许
 使用本地可信模型目录。默认 `spam_like` 阈值 `0.65` 是无 Ham 条件下的启发式相似度阈值，
 不是经二分类校准的概率或质量承诺。
+
+Story 006 的在线接入约定：
+
+- Bot 启动时从 `SPAM_MODEL_PATH` 加载一次 `SimilarityPredictor`；模型缺失或损坏不阻止启动。
+- 推理只发生在规则删除后的 `CaptureService` worker 中，通过线程池执行并由独立 semaphore 限流；任何推理异常都降级为 `unavailable`，不能阻止 D1 pending 和人工审核。
+- `PredictionResult` 显式映射为 `ModelSuggestion` 后，完整建议进入 `message_json`，并由 D1 独立列保存模型版本、decision 和相似度。
+- 推理耗时日志只包含 decision 和 `duration_ms`，不包含消息原文、Bio、Telegram 私密标识符或 `nearest_example`。
+- 管理员私聊 `/model` 显示可用性、类型、版本和三种 decision 的语义。V1 manifest 为保证字节级复现不写构建时间，因此显示“未记录”，不能用文件 mtime 冒充构建日期。
 
 ## 故障处理
 - D1 写入失败：记录脱敏错误，不发送指向不存在记录的审核按钮；现有规则删除不受影响。

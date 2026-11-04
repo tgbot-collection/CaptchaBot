@@ -117,6 +117,20 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
         model = ModelSuggestion(version="v0", kind="similarity", decision="unknown", score=0.1)
         rendered = render_pending_notification(1, make_sample(model=model))
         self.assertIn("unknown（无法判断，不等于 Ham）", rendered)
+        self.assertIn("相似度=0.1000（不是概率）", rendered)
+        self.assertNotIn("score=", rendered)
+
+    async def test_unavailable_model_is_explained_without_fake_version(self) -> None:
+        model = ModelSuggestion(
+            version=None,
+            kind="similarity",
+            decision="unavailable",
+            score=None,
+        )
+        rendered = render_pending_notification(1, make_sample(model=model))
+        self.assertIn("unavailable（模型不可用，不影响保存和人工审核）", rendered)
+        self.assertIn("相似度=无（不是概率）", rendered)
+        self.assertIn("版本=无", rendered)
 
     async def test_existing_notification_is_not_sent_again(self) -> None:
         telegram = FakeTelegram()

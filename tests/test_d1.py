@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import replace
 import json
 import sqlite3
 import unittest
@@ -16,7 +17,7 @@ from spam_learning.d1 import (
     ReviewOutcome,
 )
 from spam_learning.d1_migrate import MIGRATION_PATH
-from spam_learning.schemas import MessageSnapshot, SpamSample
+from spam_learning.schemas import MessageSnapshot, ModelSuggestion, SpamSample
 
 
 class SQLiteD1Transport:
@@ -103,6 +104,25 @@ class D1ClientTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn(str(sample.message.message_id), record.dedupe_key)
         count = self.transport.connection.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
         self.assertEqual(count, 1)
+
+    async def test_unavailable_prediction_persists_null_version_and_score(self) -> None:
+        sample = replace(
+            make_sample(),
+            model=ModelSuggestion(
+                version=None,
+                kind="similarity",
+                decision="unavailable",
+                score=None,
+            ),
+        )
+
+        sample_id = await self.client.create_pending(sample)
+        record = await self.client.get(sample_id)
+
+        self.assertEqual(record.prediction, "unavailable")
+        self.assertIsNone(record.model_version)
+        self.assertIsNone(record.prediction_score)
+        self.assertEqual(record.sample["model"]["version"], None)
 
     async def test_repeated_review_does_not_overwrite_label(self) -> None:
         sample_id = await self.client.create_pending(make_sample())
@@ -261,6 +281,7 @@ class D1ConfigTests(unittest.TestCase):
             {
                 "SPAM_CAPTURE_QUEUE_SIZE": "7",
                 "SPAM_CAPTURE_WORKERS": "3",
+                "SPAM_INFERENCE_CONCURRENCY": "4",
                 "SPAM_BIO_TIMEOUT_SECONDS": "1.5",
                 "SPAM_BIO_CACHE_TTL_SECONDS": "60",
                 "SPAM_BIO_CACHE_SIZE": "25",
@@ -269,6 +290,7 @@ class D1ConfigTests(unittest.TestCase):
         )
         self.assertEqual(configured.capture_queue_size, 7)
         self.assertEqual(configured.capture_workers, 3)
+        self.assertEqual(configured.inference_concurrency, 4)
         self.assertEqual(configured.bio_timeout_seconds, 1.5)
         self.assertEqual(configured.bio_cache_ttl_seconds, 60.0)
         self.assertEqual(configured.bio_cache_size, 25)
@@ -277,6 +299,8 @@ class D1ConfigTests(unittest.TestCase):
     def test_capture_config_rejects_non_positive_values(self) -> None:
         with self.assertRaisesRegex(ConfigError, "SPAM_CAPTURE_QUEUE_SIZE"):
             SpamLearningConfig.from_env({"SPAM_CAPTURE_QUEUE_SIZE": "0"})
+        with self.assertRaisesRegex(ConfigError, "SPAM_INFERENCE_CONCURRENCY"):
+            SpamLearningConfig.from_env({"SPAM_INFERENCE_CONCURRENCY": "0"})
 
     def test_d1_config_can_be_required_while_feature_is_disabled(self) -> None:
         config = SpamLearningConfig.from_env(
