@@ -1,7 +1,7 @@
 FROM python:3.14-slim AS pybuilder
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc make \
+    && apt-get install -y build-essential \
     && rm -rf /var/lib/apt/lists/*
 COPY requirements.txt /tmp/
 RUN pip3 install --user -r /tmp/requirements.txt
