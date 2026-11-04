@@ -102,6 +102,11 @@ python -m spam_learning.seed_model --model models/spam_learning --text "测试�
 D1 pending 并发送人工审核通知。推理日志只记录 decision 和耗时，不记录消息原文、Bio
 或最近样本。
 
+正式 Docker 镜像在构建阶段执行 `make train-spam-model`，从仓库内的 `spam.txt` 生成
+确定性初始相似度模型，并将产物复制到镜像内的
+`/CaptchaBot/models/spam_learning`。镜像默认将 `SPAM_MODEL_PATH` 指向该目录，因此运行时
+不需要模型 bind mount，也不会下载或在线训练模型。更换 `spam.txt` 后必须重新构建镜像。
+
 ## 人工审核数据重训
 
 Story 007 将导出、候选构建和批准拆成三个显式阶段。导出的 JSONL 包含人工审核消息原文，
@@ -173,6 +178,9 @@ python -m spam_learning.d1_migrate --apply
 
 远程迁移通过 Cloudflare D1 REST API 执行，不需要 Cloudflare Worker。Migration 使用
 `IF NOT EXISTS`，可以重复执行；不要在命令行参数或日志中填写 Token。
+
+D1 中的 pending/reviewed 样本默认不执行自动清理；项目维护者根据实际需要决定保留期限和
+人工删除操作。删除前应确认不会破坏审核、训练数据来源或审计需求。
 
 # Run
 
