@@ -5,8 +5,8 @@ from types import SimpleNamespace
 import unittest
 from dataclasses import replace
 
-from spam_learning.capture import CaptureService
-from spam_learning.schemas import MessageSnapshot, SpamSample, UserSnapshot
+from spamdet.capture import CaptureService
+from spamdet.schemas import MessageSnapshot, SpamSample, UserSnapshot
 
 
 def make_sample(message_id: int, *, user_id: int = 123) -> SpamSample:
@@ -84,7 +84,7 @@ class RecordingInference:
         if self.error is not None:
             raise self.error
         from dataclasses import replace
-        from spam_learning.schemas import ModelSuggestion
+        from spamdet.schemas import ModelSuggestion
 
         return replace(
             sample,
@@ -131,6 +131,7 @@ class CaptureServiceTests(unittest.IsolatedAsyncioTestCase):
             await service.aclose()
 
         self.assertEqual(inference.calls[0].user.bio, "简介")
+        self.assertEqual(inference.calls[0].user.bio_state, "present")
         self.assertEqual(store.samples[0].model.decision, "spam_like")
         self.assertIs(notifier.calls[0][1], store.samples[0])
 
@@ -210,6 +211,7 @@ class CaptureServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(telegram.calls, 1)
         self.assertEqual([sample.user.bio for sample in store.samples], ["保留原始 Bio", "保留原始 Bio"])
+        self.assertEqual([sample.user.bio_state for sample in store.samples], ["present", "present"])
 
     async def test_bio_timeout_still_writes_pending_sample(self) -> None:
         telegram = FakeTelegram(delay=0.05)
@@ -224,6 +226,7 @@ class CaptureServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(len(store.samples), 1)
         self.assertIsNone(store.samples[0].user.bio)
+        self.assertEqual(store.samples[0].user.bio_state, "unavailable")
 
     async def test_full_queue_drops_without_blocking(self) -> None:
         telegram = FakeTelegram()
@@ -250,7 +253,7 @@ class CaptureServiceTests(unittest.IsolatedAsyncioTestCase):
         sample = SpamSample(
             source=original.source,
             message=original.message,
-            user=UserSnapshot(id=original.user.id, bio="已有 Bio"),
+            user=UserSnapshot(id=original.user.id, bio="已有 Bio", bio_state="present"),
             matched_rule=original.matched_rule,
         )
         service = CaptureService(telegram, store, worker_count=1)
@@ -263,6 +266,7 @@ class CaptureServiceTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(telegram.calls, 0)
         self.assertEqual(store.samples[0].user.bio, "已有 Bio")
+        self.assertEqual(store.samples[0].user.bio_state, "present")
 
 
 if __name__ == "__main__":

@@ -64,7 +64,7 @@ class CaptureService:
         self._bio_cache_ttl = bio_cache_ttl
         self._bio_cache_size = bio_cache_size
         self._shutdown_timeout = shutdown_timeout
-        self._bio_cache: OrderedDict[int, tuple[float, str | None]] = OrderedDict()
+        self._bio_cache: OrderedDict[int, tuple[float, str | None, str]] = OrderedDict()
         self._tasks: list[asyncio.Task[None]] = []
         self._accepting = False
 
@@ -150,29 +150,32 @@ class CaptureService:
 
     async def _with_bio(self, sample: SpamSample) -> SpamSample:
         user_id = sample.user.id
-        if sample.user.bio is not None or user_id is None:
+        if sample.user.bio_state != "not_requested" or user_id is None:
             return sample
 
         now = time.monotonic()
         cached = self._bio_cache.get(user_id)
         if cached is not None and cached[0] > now:
             self._bio_cache.move_to_end(user_id)
-            return replace(sample, user=replace(sample.user, bio=cached[1]))
+            return replace(sample, user=replace(sample.user, bio=cached[1], bio_state=cached[2]))
         if cached is not None:
             del self._bio_cache[user_id]
 
         bio: str | None = None
+        bio_state = "unavailable"
         try:
             async with asyncio.timeout(self._bio_timeout):
                 chat = await self._telegram.get_chat(user_id)
             value = getattr(chat, "bio", None)
-            bio = value if isinstance(value, str) else None
+            bio = value if isinstance(value, str) and value else None
+            bio_state = "present" if bio else "empty"
         except Exception:
             # 权限不足、限流、超时或字段缺失都以 null 继续采集。
             bio = None
+            bio_state = "unavailable"
 
-        self._bio_cache[user_id] = (now + self._bio_cache_ttl, bio)
+        self._bio_cache[user_id] = (now + self._bio_cache_ttl, bio, bio_state)
         self._bio_cache.move_to_end(user_id)
         while len(self._bio_cache) > self._bio_cache_size:
             self._bio_cache.popitem(last=False)
-        return replace(sample, user=replace(sample.user, bio=bio))
+        return replace(sample, user=replace(sample.user, bio=bio, bio_state=bio_state))

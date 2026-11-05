@@ -7,10 +7,10 @@ import threading
 import time
 import unittest
 
-from spam_learning.binary_model import LabeledText, train_binary_model
-from spam_learning.inference import InferenceService, ModelStatus, render_model_status
-from spam_learning.schemas import MessageSnapshot, SpamSample
-from spam_learning.seed_model import PredictionResult, train_seed_model
+from spamdet.binary_model import LabeledText, train_binary_model
+from spamdet.inference import InferenceService, ModelStatus, render_model_status
+from spamdet.schemas import MessageSnapshot, SpamSample
+from spamdet.seed_model import PredictionResult, train_seed_model
 
 
 def make_sample(text: str = "帮我收米") -> SpamSample:

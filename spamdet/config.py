@@ -96,7 +96,7 @@ class SpamLearningConfig:
     d1_account_id: str | None = None
     d1_database_id: str | None = None
     d1_api_token: str | None = field(default=None, repr=False)
-    model_path: Path = Path("models/spam_learning")
+    model_path: Path = Path("models/spamdet")
     capture_queue_size: int = 100
     capture_workers: int = 2
     inference_concurrency: int = 2
@@ -119,7 +119,7 @@ class SpamLearningConfig:
             values.get("SPAM_LEARNING_ENABLED"),
             default=False,
         )
-        model_path_value = values.get("SPAM_MODEL_PATH", "models/spam_learning").strip()
+        model_path_value = values.get("SPAM_MODEL_PATH", "models/spamdet").strip()
         if not model_path_value:
             raise ConfigError("SPAM_MODEL_PATH 不能为空")
 

@@ -7,8 +7,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from spam_learning.schemas import sample_from_seed_text
-from spam_learning.seed_model import (
+from spamdet.features import FeatureChannels, extract_feature_channels
+from spamdet.schemas import MessageSnapshot, SpamSample, UserSnapshot, sample_from_seed_text
+from spamdet.seed_model import (
     ModelLoadError,
     PreprocessConfig,
     SimilarityPredictor,
@@ -18,10 +19,69 @@ from spam_learning.seed_model import (
     normalize_text,
     read_seed_examples,
     train_seed_model,
+    train_feature_similarity_model,
 )
 
 
 class SeedModelTests(unittest.TestCase):
+    def test_feature_contract_uses_bio_and_name_but_excludes_username_and_id(self):
+        base = SpamSample(
+            source="rule",
+            message=MessageSnapshot(None, None, None, "普通短句", None),
+            user=UserSnapshot(
+                id=123,
+                username="random_123456",
+                first_name="接单",
+                last_name="客服",
+                bio="做单联系 @worker",
+                bio_state="present",
+            ),
+        )
+        other = SpamSample(
+            source="rule",
+            message=base.message,
+            user=UserSnapshot(
+                id=999,
+                username="totally_different",
+                first_name="接单",
+                last_name="客服",
+                bio="做单联系 @worker",
+                bio_state="present",
+            ),
+        )
+        self.assertEqual(extract_feature_channels(base), extract_feature_channels(other))
+
+    def test_similarity_prediction_uses_bio_channel(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            summary = train_feature_similarity_model(
+                [
+                    (
+                        FeatureChannels(
+                            message="有时间就行",
+                            bio="做单联系 @worker 公群 https://t.me/+example",
+                            display_name="看喔竹耶",
+                        ),
+                        "有时间就行",
+                    )
+                ],
+                root / "model",
+            )
+            model = load_seed_model(root / "model")
+            sample = SpamSample(
+                source="rule",
+                message=MessageSnapshot(None, None, None, "有时间就行", None),
+                user=UserSnapshot(
+                    first_name="看喔竹耶",
+                    bio="做单联系 @another 公群 https://t.me/+changed",
+                    bio_state="present",
+                ),
+            )
+            result = model.predict(sample)
+        self.assertEqual(result.model_version, summary.model_version)
+        self.assertEqual(result.decision, "spam_like")
+        self.assertGreater(result.score or 0.0, 0.9)
+
     def test_normalize_is_deterministic_without_replacing_chinese(self):
         text = "  Ａ\u200bＢ　中文 HTTPS://EXAMPLE.COM/a  @Some_User  "
         self.assertEqual(normalize_text(text), "ab 中文 urltoken mentiontoken")

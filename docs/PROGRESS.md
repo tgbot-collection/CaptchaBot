@@ -11,5 +11,7 @@
 - [x] 007 — 重新训练 · [Notes](notes/007-notes.md) · 已完成
 - [x] 008 — Docker 部署 · [Notes](notes/008-notes.md) · 已完成
 - [x] 009 — 群消息采集 · [Notes](notes/009-notes.md) · 已完成
+- [x] 010 — 多字段 Spam 特征 · [Notes](notes/010-notes.md) · 已完成
+- [x] 011 — 包名与 D1 运维入口 · [Notes](notes/011-notes.md) · 已完成
 
 这里仅记录状态；真实验证方式/结果、决策、修改文件、风险和 commit hash 必须写入对应 Notes。每次新会话先阅读已完成的 Notes。

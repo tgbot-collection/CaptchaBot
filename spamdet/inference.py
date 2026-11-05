@@ -107,6 +107,7 @@ def render_model_status(status: ModelStatus) -> str:
         f"类型: {status.kind}\n"
         f"版本: {version}\n"
         f"构建日期: {built_at}\n\n"
+        "模型输入: message/caption + bio + display_name；username 和 user.id 不参与\n\n"
         f"{semantics}\n"
         "unavailable: 模型不可用，不影响保存和人工审核"
     )

@@ -8,16 +8,16 @@ import unittest
 
 import httpx
 
-from spam_learning.config import ConfigError, SpamLearningConfig
-from spam_learning.d1 import (
+from spamdet.config import ConfigError, SpamLearningConfig
+from spamdet.d1 import (
     D1APIError,
     D1Client,
     D1HTTPError,
     D1NotFoundError,
     ReviewOutcome,
 )
-from spam_learning.d1_migrate import MIGRATION_PATH
-from spam_learning.schemas import MessageSnapshot, ModelSuggestion, SpamSample
+from spamdet.d1_migrate import MIGRATION_PATH
+from spamdet.schemas import MessageSnapshot, ModelSuggestion, SpamSample
 
 
 class SQLiteD1Transport:

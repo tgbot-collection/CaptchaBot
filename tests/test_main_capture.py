@@ -6,8 +6,8 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 import main
-from spam_learning import ModelStatus, SpamLearningConfig
-from spam_learning.config import ConfigError
+from spamdet import ModelStatus, SpamLearningConfig
+from spamdet.config import ConfigError
 
 
 class RecordingCapture:
@@ -130,12 +130,16 @@ class GroupSelectionTests(unittest.TestCase):
 
 class GroupCaptureTests(unittest.IsolatedAsyncioTestCase):
     async def test_selected_normal_message_is_pending_and_other_group_is_not_recorded(self) -> None:
-        old_service, old_config = main.spam_capture_service, main.spam_learning_config
+        old_service, old_config = main.spam_capture_service, main.spamdet_config
         capture = RecordingCapture()
         main.spam_capture_service = capture
-        main.spam_learning_config = SpamLearningConfig(enabled=True, record_groups=frozenset({-100123}))
+        main.spamdet_config = SpamLearningConfig(enabled=True, record_groups=frozenset({-100123}))
         try:
-            with patch.object(main.app, "get_chat", new=AsyncMock(return_value=SimpleNamespace(bio=None))):
+            with patch.object(
+                main.app,
+                "get_chat",
+                new=AsyncMock(return_value=SimpleNamespace(bio="个人简介中的联系方式 @example")),
+            ):
                 first = FakeMessage()
                 self.assertFalse(await main.group_message_preprocess(main.app, first))
                 second = FakeMessage()
@@ -145,18 +149,20 @@ class GroupCaptureTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual((capture.samples[0].source, capture.samples[0].status, capture.samples[0].label),
                              ("group", "pending", None))
             self.assertFalse(first.deleted)
+            self.assertEqual(capture.samples[0].user.bio, "个人简介中的联系方式 @example")
+            self.assertEqual(capture.samples[0].user.bio_state, "present")
         finally:
-            main.spam_capture_service, main.spam_learning_config = old_service, old_config
+            main.spam_capture_service, main.spamdet_config = old_service, old_config
 
 
 class ModelHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.original_service = main.spam_inference_service
-        self.original_config = main.spam_learning_config
+        self.original_config = main.spamdet_config
 
     async def asyncTearDown(self) -> None:
         main.spam_inference_service = self.original_service
-        main.spam_learning_config = self.original_config
+        main.spamdet_config = self.original_config
 
     async def test_only_configured_admin_can_view_model_status(self) -> None:
         class FakeInference:
@@ -170,7 +176,7 @@ class ModelHandlerTests(unittest.IsolatedAsyncioTestCase):
             async def reply_text(self, text: str) -> None:
                 self.replies.append(text)
 
-        main.spam_learning_config = SpamLearningConfig(admin_id=123)
+        main.spamdet_config = SpamLearningConfig(admin_id=123)
         main.spam_inference_service = FakeInference()
         admin_message = CommandMessage(123)
         other_message = CommandMessage(456)

@@ -3,9 +3,9 @@ from __future__ import annotations
 from types import SimpleNamespace
 import unittest
 
-from spam_learning.d1 import D1APIError, ReviewOutcome, SampleStats
-from spam_learning.review import ReviewService, render_pending_notification
-from spam_learning.schemas import MessageSnapshot, ModelSuggestion, SpamSample, UserSnapshot
+from spamdet.d1 import D1APIError, ReviewOutcome, SampleStats
+from spamdet.review import ReviewService, render_pending_notification
+from spamdet.schemas import MessageSnapshot, ModelSuggestion, SpamSample, UserSnapshot
 
 
 ADMIN_ID = 12345
@@ -26,6 +26,7 @@ def make_sample(*, model: ModelSuggestion | None = None) -> SpamSample:
             username="sender<name>",
             first_name="张&三",
             bio="bio <script>",
+            bio_state="present",
         ),
         matched_rule="blacklist_message:收米",
         model=model,
@@ -150,7 +151,7 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_classifier_score_is_marked_un_calibrated(self) -> None:
         model = ModelSuggestion(
-            version="char-logreg-v1-0123456789abcdef",
+            version="char-logreg-v2-0123456789abcdef",
             kind="logistic_regression",
             decision="spam",
             score=0.75,

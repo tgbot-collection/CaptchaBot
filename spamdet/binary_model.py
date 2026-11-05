@@ -13,12 +13,20 @@ import re
 import tempfile
 from typing import Any, Mapping, Sequence
 
-from .schemas import SpamSample
+from .features import (
+    DEFAULT_CHANNEL_WEIGHTS,
+    ChannelWeights,
+    FeatureChannels,
+    extract_feature_channels,
+    feature_term_counts,
+    term_channel_weight,
+)
+from .schemas import SCHEMA_VERSION, SpamSample
 from .seed_model import ModelLoadError, PredictionResult, PreprocessConfig, normalize_text
 
 
 MODEL_KIND = "logistic_regression"
-MODEL_FORMAT_VERSION = 1
+MODEL_FORMAT_VERSION = 2
 DEFAULT_NGRAM_RANGE = (2, 5)
 _MAX_MODEL_BYTES = 64 * 1024 * 1024
 
@@ -27,6 +35,12 @@ _MAX_MODEL_BYTES = 64 * 1024 * 1024
 class LabeledText:
     text: str
     label: str
+    bio: str = ""
+    display_name: str = ""
+
+    @property
+    def channels(self) -> FeatureChannels:
+        return FeatureChannels(self.text, self.bio, self.display_name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,12 +86,17 @@ def _vector(
     counts: Mapping[str, int],
     vocabulary_index: Mapping[str, int],
     idf: Sequence[float],
+    channel_weights: ChannelWeights = DEFAULT_CHANNEL_WEIGHTS,
 ) -> dict[int, float]:
     values: dict[int, float] = {}
     for term, count in counts.items():
         index = vocabulary_index.get(term)
         if index is not None and count > 0:
-            values[index] = (1.0 + math.log(count)) * idf[index]
+            values[index] = (
+                (1.0 + math.log(count))
+                * idf[index]
+                * term_channel_weight(term, channel_weights)
+            )
     norm = math.sqrt(sum(value * value for value in values.values()))
     return {} if norm == 0 else {index: value / norm for index, value in values.items()}
 
@@ -102,6 +121,7 @@ class BinaryTextModel:
         weights: Sequence[float],
         bias: float,
         threshold: float,
+        channel_weights: ChannelWeights,
     ) -> None:
         self.model_version = model_version
         self.preprocessing = preprocessing
@@ -111,17 +131,26 @@ class BinaryTextModel:
         self.weights = tuple(weights)
         self.bias = bias
         self.threshold = threshold
+        self.channel_weights = channel_weights
         self._vocabulary_index = {term: index for index, term in enumerate(self.vocabulary)}
 
     def predict(self, sample: SpamSample) -> PredictionResult:
-        return self.predict_text(sample.message.text or sample.message.caption or "")
+        return self.predict_channels(extract_feature_channels(sample))
 
     def predict_text(self, text: str) -> PredictionResult:
-        normalized = normalize_text(text, self.preprocessing)
+        return self.predict_channels(FeatureChannels(message=text))
+
+    def predict_channels(self, channels: FeatureChannels) -> PredictionResult:
+        counts = feature_term_counts(
+            channels,
+            lambda value: normalize_text(value, self.preprocessing),
+            *self.ngram_range,
+        )
         vector = _vector(
-            _ngrams(normalized, *self.ngram_range),
+            counts,
             self._vocabulary_index,
             self.idf,
+            self.channel_weights,
         )
         score = _sigmoid(self.bias + sum(self.weights[index] * value for index, value in vector.items()))
         decision = "spam" if score >= self.threshold else "ham"
@@ -172,22 +201,30 @@ def train_binary_model(
     learning_rate: float = 0.5,
     l2: float = 0.01,
     threshold: float = 0.5,
+    channel_weights: ChannelWeights = DEFAULT_CHANNEL_WEIGHTS,
 ) -> BinaryTrainingSummary:
     if not examples or {item.label for item in examples} != {"spam", "ham"}:
         raise ValueError("二分类训练必须同时包含真实 spam 和 ham")
     if iterations <= 0 or learning_rate <= 0 or l2 < 0 or not 0 < threshold < 1:
         raise ValueError("Logistic Regression 参数无效")
     minimum, maximum = ngram_range
-    normalized = [normalize_text(item.text, preprocessing) for item in examples]
-    if any(not text for text in normalized):
-        raise ValueError("二分类训练文本归一化后不能为空")
-    counts = [_ngrams(text, minimum, maximum) for text in normalized]
+    counts = [
+        feature_term_counts(
+            item.channels,
+            lambda value: normalize_text(value, preprocessing),
+            minimum,
+            maximum,
+        )
+        for item in examples
+    ]
+    if any(not value for value in counts):
+        raise ValueError("二分类训练样本归一化后不能为空")
     vocabulary = sorted({term for document in counts for term in document})
     vocabulary_index = {term: index for index, term in enumerate(vocabulary)}
     frequency = Counter(term for document in counts for term in document)
     total = len(examples)
     idf = [math.log((1.0 + total) / (1.0 + frequency[term])) + 1.0 for term in vocabulary]
-    vectors = [_vector(document, vocabulary_index, idf) for document in counts]
+    vectors = [_vector(document, vocabulary_index, idf, channel_weights) for document in counts]
     labels = [1.0 if item.label == "spam" else 0.0 for item in examples]
     weights = [0.0] * len(vocabulary)
     positive_rate = min(1.0 - 1e-9, max(1e-9, sum(labels) / total))
@@ -214,8 +251,9 @@ def train_binary_model(
         "dataset_sha256": dataset_sha256,
         "sample_count": len(examples),
         "class_counts": dict(Counter(item.label for item in examples)),
-        "schema_compatibility": [1],
+        "schema_compatibility": [SCHEMA_VERSION],
         "preprocessing": preprocessing.to_dict(),
+        "channel_weights": channel_weights.to_dict(),
         "vectorizer": {"analyzer": "char", "ngram_range": [minimum, maximum], "min_df": 1, "norm": "l2"},
         "classifier": {
             "algorithm": "batch_logistic_regression",
@@ -226,7 +264,7 @@ def train_binary_model(
         },
     }
     version_hash = _sha256(_canonical_json({**signature, "vocabulary": vocabulary, "idf": idf, "weights": weights, "bias": bias}))
-    model_version = f"char-logreg-v1-{version_hash[:16]}"
+    model_version = f"char-logreg-v2-{version_hash[:16]}"
     artifact = {
         **signature,
         "model_version": model_version,
@@ -270,7 +308,12 @@ def load_binary_model(model_dir: str | os.PathLike[str]) -> BinaryTextModel:
         if len(artifact_bytes) > _MAX_MODEL_BYTES or _sha256(artifact_bytes) != manifest["artifact_sha256"]:
             raise ModelLoadError("二分类 artifact 校验失败")
         artifact = json.loads(artifact_bytes)
-        if manifest.get("kind") != MODEL_KIND or artifact.get("kind") != MODEL_KIND:
+        if (
+            manifest.get("kind") != MODEL_KIND
+            or artifact.get("kind") != MODEL_KIND
+            or manifest.get("format_version") != MODEL_FORMAT_VERSION
+            or artifact.get("format_version") != MODEL_FORMAT_VERSION
+        ):
             raise ModelLoadError("模型类型不受支持")
         model_version = artifact["model_version"]
         vocabulary = artifact["vocabulary"]
@@ -278,6 +321,7 @@ def load_binary_model(model_dir: str | os.PathLike[str]) -> BinaryTextModel:
         weights = [float(value) for value in artifact["weights"]]
         minimum, maximum = map(int, artifact["vectorizer"]["ngram_range"])
         preprocessing = PreprocessConfig.from_dict(artifact["preprocessing"])
+        channel_weights = ChannelWeights.from_dict(artifact["channel_weights"])
         bias = float(artifact["bias"])
         threshold = float(artifact["classifier"]["threshold"])
     except ModelLoadError:
@@ -286,8 +330,12 @@ def load_binary_model(model_dir: str | os.PathLike[str]) -> BinaryTextModel:
         raise ModelLoadError("无法读取二分类 JSON 模型") from exc
     if (
         not isinstance(model_version, str)
-        or re.fullmatch(r"char-logreg-v1-[0-9a-f]{16}", model_version) is None
+        or re.fullmatch(r"char-logreg-v2-[0-9a-f]{16}", model_version) is None
         or manifest.get("model_version") != model_version
+        or manifest.get("preprocessing") != artifact.get("preprocessing")
+        or manifest.get("channel_weights") != artifact.get("channel_weights")
+        or manifest.get("vectorizer") != artifact.get("vectorizer")
+        or manifest.get("classifier") != artifact.get("classifier")
         or not vocabulary
         or any(not isinstance(term, str) for term in vocabulary)
         or len(vocabulary) != len(set(vocabulary))
@@ -308,4 +356,5 @@ def load_binary_model(model_dir: str | os.PathLike[str]) -> BinaryTextModel:
         weights=weights,
         bias=bias,
         threshold=threshold,
+        channel_weights=channel_weights,
     )

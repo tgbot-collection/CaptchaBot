@@ -8,10 +8,11 @@ import json
 from typing import Any
 
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 _SOURCES = frozenset({"rule", "manual", "group"})
 _STATUSES = frozenset({"pending", "reviewed"})
 _LABELS = frozenset({"spam", "ham"})
+_BIO_STATES = frozenset({"present", "empty", "unavailable", "not_requested"})
 
 
 def _enum_value(value: Any) -> str | None:
@@ -85,6 +86,15 @@ class UserSnapshot:
     last_name: str | None = None
     is_premium: bool | None = None
     bio: str | None = None
+    bio_state: str = "not_requested"
+
+    def __post_init__(self) -> None:
+        if self.bio_state not in _BIO_STATES:
+            raise ValueError(f"不支持 bio_state={self.bio_state!r}")
+        if self.bio_state == "present" and not self.bio:
+            raise ValueError("bio_state=present 时 bio 必须是非空字符串")
+        if self.bio_state != "present" and self.bio is not None:
+            raise ValueError("只有 bio_state=present 时才能保存 bio")
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -94,6 +104,7 @@ class UserSnapshot:
             "last_name": self.last_name,
             "is_premium": self.is_premium,
             "bio": self.bio,
+            "bio_state": self.bio_state,
         }
 
 
@@ -192,6 +203,7 @@ def sample_from_message(
     *,
     matched_rule: str | None = None,
     bio: str | None = None,
+    bio_state: str | None = None,
     source: str = "rule",
 ) -> SpamSample:
     """同步提取 Pyrogram ``Message`` 的必要字段，不执行任何 API 请求。"""
@@ -203,6 +215,7 @@ def sample_from_message(
     chat = getattr(message, "chat", None)
     entity_source = getattr(message, "entities", None) if text is not None else getattr(message, "caption_entities", None)
 
+    resolved_bio_state = bio_state or ("present" if bio else "not_requested")
     return SpamSample(
         source=source,
         message=MessageSnapshot(
@@ -221,6 +234,7 @@ def sample_from_message(
             last_name=getattr(from_user, "last_name", None),
             is_premium=getattr(from_user, "is_premium", None),
             bio=bio,
+            bio_state=resolved_bio_state,
         ),
         via_bot=ViaBotSnapshot(
             id=getattr(via_bot, "id", None),
@@ -246,6 +260,7 @@ def sample_from_stored_dict(value: dict[str, Any]) -> SpamSample:
             id=user.get("id"), username=user.get("username"),
             first_name=user.get("first_name"), last_name=user.get("last_name"),
             is_premium=user.get("is_premium"), bio=user.get("bio"),
+            bio_state=user.get("bio_state", "not_requested"),
         ),
         matched_rule=value.get("matched_rule"),
         model=ModelSuggestion(**model) if isinstance(model, dict) else None,

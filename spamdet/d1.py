@@ -365,8 +365,8 @@ class D1Client:
 
 
 def _online_dedupe_key(sample: SpamSample) -> str:
-    identity = f"v1\0{sample.source}\0{sample.message.chat_id}\0{sample.message.message_id}"
-    return "v1:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    identity = f"v2\0{sample.source}\0{sample.message.chat_id}\0{sample.message.message_id}"
+    return "v2:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
 def _positive_id(value: Any, name: str) -> int:

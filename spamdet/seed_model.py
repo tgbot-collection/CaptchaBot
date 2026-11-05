@@ -15,10 +15,18 @@ import tempfile
 from typing import Any, Mapping, Sequence
 import unicodedata
 
+from .features import (
+    DEFAULT_CHANNEL_WEIGHTS,
+    ChannelWeights,
+    FeatureChannels,
+    extract_feature_channels,
+    feature_term_counts,
+    term_channel_weight,
+)
 from .schemas import SpamSample
 
 
-MODEL_FORMAT_VERSION = 1
+MODEL_FORMAT_VERSION = 2
 MODEL_KIND = "similarity"
 DEFAULT_THRESHOLD = 0.65
 DEFAULT_NGRAM_RANGE = (2, 5)
@@ -47,6 +55,7 @@ _ZERO_WIDTH_CHARACTERS = frozenset(
         "\ufeff",  # zero width no-break space / BOM
     }
 )
+_TELEGRAM_INVITE_RE = re.compile(r"(?i)(?<![\w@])(?:https?://)?(?:t|telegram)\.me/\+[^\s<>]+")
 _URL_RE = re.compile(
     r"(?i)(?<![\w@])(?:https?://|www\.|(?:t|telegram)\.me/)[^\s<>]+"
 )
@@ -119,6 +128,14 @@ class PredictionResult:
 class SeedExample:
     raw: str
     normalized: str
+    bio: str = ""
+    normalized_bio: str = ""
+    display_name: str = ""
+    normalized_display_name: str = ""
+
+    @property
+    def channels(self) -> FeatureChannels:
+        return FeatureChannels(self.raw, self.bio, self.display_name)
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +159,7 @@ def normalize_text(text: str, config: PreprocessConfig = PreprocessConfig()) -> 
     if config.casefold:
         result = result.casefold()
     if config.tokenize_urls:
+        result = _TELEGRAM_INVITE_RE.sub(" telegraminvitetoken ", result)
         result = _URL_RE.sub(" urltoken ", result)
     if config.tokenize_mentions:
         result = _MENTION_RE.sub(" mentiontoken ", result)
@@ -197,12 +215,17 @@ def _vectorize_counts(
     counts: Mapping[str, int],
     vocabulary_index: Mapping[str, int],
     idf: Sequence[float],
+    channel_weights: ChannelWeights = DEFAULT_CHANNEL_WEIGHTS,
 ) -> dict[int, float]:
     weighted: dict[int, float] = {}
     for term, count in counts.items():
         index = vocabulary_index.get(term)
         if index is not None and count > 0:
-            weighted[index] = (1.0 + math.log(count)) * idf[index]
+            weighted[index] = (
+                (1.0 + math.log(count))
+                * idf[index]
+                * term_channel_weight(term, channel_weights)
+            )
     norm = math.sqrt(sum(value * value for value in weighted.values()))
     if norm == 0.0:
         return {}
@@ -252,6 +275,7 @@ class SeedSimilarityModel:
         idf: Sequence[float],
         examples: Sequence[SeedExample],
         vectors: Sequence[Mapping[int, float]],
+        channel_weights: ChannelWeights,
     ) -> None:
         self.model_version = model_version
         self.threshold = threshold
@@ -261,20 +285,28 @@ class SeedSimilarityModel:
         self.idf = tuple(idf)
         self.examples = tuple(examples)
         self.vectors = tuple(dict(vector) for vector in vectors)
+        self.channel_weights = channel_weights
         self._vocabulary_index = {term: index for index, term in enumerate(self.vocabulary)}
 
     def predict(self, sample: SpamSample) -> PredictionResult:
-        text = sample.message.text or sample.message.caption or ""
-        return self.predict_text(text)
+        return self.predict_channels(extract_feature_channels(sample))
 
     def predict_text(self, text: str) -> PredictionResult:
-        normalized = normalize_text(text, self.preprocess_config)
-        if not normalized:
+        return self.predict_channels(FeatureChannels(message=text))
+
+    def predict_channels(self, channels: FeatureChannels) -> PredictionResult:
+        counts = feature_term_counts(
+            channels,
+            lambda value: normalize_text(value, self.preprocess_config),
+            *self.ngram_range,
+        )
+        if not counts:
             return PredictionResult(MODEL_KIND, "unknown", 0.0, self.model_version)
         query = _vectorize_counts(
-            _character_ngrams(normalized, *self.ngram_range),
+            counts,
             self._vocabulary_index,
             self.idf,
+            self.channel_weights,
         )
         if not query:
             return PredictionResult(MODEL_KIND, "unknown", 0.0, self.model_version)
@@ -345,7 +377,78 @@ def train_seed_model(
         raise ValueError("ngram_range 必须是递增的正整数区间")
 
     examples, skipped_empty, skipped_duplicate = read_seed_examples(input_path, preprocess_config)
-    document_counts = [_character_ngrams(example.normalized, min_n, max_n) for example in examples]
+    return _train_similarity_examples(
+        examples,
+        output_dir,
+        threshold=threshold,
+        preprocess_config=preprocess_config,
+        ngram_range=ngram_range,
+        channel_weights=DEFAULT_CHANNEL_WEIGHTS,
+        skipped_empty=skipped_empty,
+        skipped_duplicate=skipped_duplicate,
+    )
+
+
+def train_feature_similarity_model(
+    examples: Sequence[tuple[FeatureChannels, str]],
+    output_dir: str | os.PathLike[str],
+    *,
+    threshold: float = DEFAULT_THRESHOLD,
+    preprocess_config: PreprocessConfig = PreprocessConfig(),
+    ngram_range: tuple[int, int] = DEFAULT_NGRAM_RANGE,
+    channel_weights: ChannelWeights = DEFAULT_CHANNEL_WEIGHTS,
+) -> TrainingSummary:
+    prepared: list[SeedExample] = []
+    for channels, raw in examples:
+        prepared.append(
+            SeedExample(
+                raw=raw,
+                normalized=normalize_text(channels.message, preprocess_config),
+                bio=channels.bio,
+                normalized_bio=normalize_text(channels.bio, preprocess_config),
+                display_name=channels.display_name,
+                normalized_display_name=normalize_text(channels.display_name, preprocess_config),
+            )
+        )
+    if not prepared:
+        raise TrainingDataError("训练语料没有可用的 Spam 正例")
+    return _train_similarity_examples(
+        prepared,
+        output_dir,
+        threshold=threshold,
+        preprocess_config=preprocess_config,
+        ngram_range=ngram_range,
+        channel_weights=channel_weights,
+    )
+
+
+def _train_similarity_examples(
+    examples: Sequence[SeedExample],
+    output_dir: str | os.PathLike[str],
+    *,
+    threshold: float,
+    preprocess_config: PreprocessConfig,
+    ngram_range: tuple[int, int],
+    channel_weights: ChannelWeights,
+    skipped_empty: int = 0,
+    skipped_duplicate: int = 0,
+) -> TrainingSummary:
+    if not 0.0 < threshold <= 1.0:
+        raise ValueError("threshold 必须位于 (0, 1] 区间")
+    min_n, max_n = ngram_range
+    if min_n <= 0 or max_n < min_n:
+        raise ValueError("ngram_range 必须是递增的正整数区间")
+    document_counts = [
+        feature_term_counts(
+            example.channels,
+            lambda value: normalize_text(value, preprocess_config),
+            min_n,
+            max_n,
+        )
+        for example in examples
+    ]
+    if any(not counts for counts in document_counts):
+        raise TrainingDataError("训练样本无法生成多通道特征")
     vocabulary = sorted({term for counts in document_counts for term in counts})
     if not vocabulary:
         raise TrainingDataError("种子语料无法生成字符 n-gram 特征")
@@ -353,13 +456,14 @@ def train_seed_model(
     document_frequency = Counter(term for counts in document_counts for term in counts)
     sample_count = len(examples)
     idf = [math.log((1.0 + sample_count) / (1.0 + document_frequency[term])) + 1.0 for term in vocabulary]
-    vectors = [_vectorize_counts(counts, vocabulary_index, idf) for counts in document_counts]
+    vectors = [_vectorize_counts(counts, vocabulary_index, idf, channel_weights) for counts in document_counts]
 
     training_signature = {
         "format_version": MODEL_FORMAT_VERSION,
         "kind": MODEL_KIND,
         "threshold": threshold,
         "preprocessing": preprocess_config.to_dict(),
+        "channel_weights": channel_weights.to_dict(),
         "vectorizer": {
             "analyzer": "char",
             "ngram_range": [min_n, max_n],
@@ -369,10 +473,20 @@ def train_seed_model(
             "norm": "l2",
             "min_df": 1,
         },
-        "examples": [{"raw": item.raw, "normalized": item.normalized} for item in examples],
+        "examples": [
+            {
+                "raw": item.raw,
+                "normalized": item.normalized,
+                "bio": item.bio,
+                "normalized_bio": item.normalized_bio,
+                "display_name": item.display_name,
+                "normalized_display_name": item.normalized_display_name,
+            }
+            for item in examples
+        ],
     }
     signature_hash = _sha256(_canonical_json(training_signature))
-    model_version = f"seed-sim-v1-{signature_hash[:16]}"
+    model_version = f"seed-sim-v2-{signature_hash[:16]}"
     artifact = {
         **training_signature,
         "model_version": model_version,
@@ -395,8 +509,16 @@ def train_seed_model(
         "sample_count": sample_count,
         "threshold": threshold,
         "preprocessing": preprocess_config.to_dict(),
+        "channel_weights": channel_weights.to_dict(),
         "vectorizer": training_signature["vectorizer"],
-        "training_corpus_sha256": _sha256(_canonical_json([item.raw for item in examples])),
+        "training_corpus_sha256": _sha256(
+            _canonical_json(
+                [
+                    {"message": item.raw, "bio": item.bio, "display_name": item.display_name}
+                    for item in examples
+                ]
+            )
+        ),
     }
 
     destination = Path(output_dir)
@@ -469,11 +591,22 @@ def load_seed_model(model_dir: str | os.PathLike[str]) -> SeedSimilarityModel:
     try:
         threshold = float(artifact["threshold"])
         preprocess_config = PreprocessConfig.from_dict(artifact["preprocessing"])
+        channel_weights = ChannelWeights.from_dict(artifact["channel_weights"])
         ngram_values = artifact["vectorizer"]["ngram_range"]
         min_n, max_n = int(ngram_values[0]), int(ngram_values[1])
         vocabulary = artifact["vocabulary"]
         idf = [float(value) for value in artifact["idf"]]
-        examples = [SeedExample(raw=item["raw"], normalized=item["normalized"]) for item in artifact["examples"]]
+        examples = [
+            SeedExample(
+                raw=item["raw"],
+                normalized=item["normalized"],
+                bio=item["bio"],
+                normalized_bio=item["normalized_bio"],
+                display_name=item["display_name"],
+                normalized_display_name=item["normalized_display_name"],
+            )
+            for item in artifact["examples"]
+        ]
         vectors = [
             {int(index): float(value) for index, value in vector}
             for vector in artifact["vectors"]
@@ -483,7 +616,7 @@ def load_seed_model(model_dir: str | os.PathLike[str]) -> SeedSimilarityModel:
     model_version = artifact.get("model_version")
     if (
         not isinstance(model_version, str)
-        or re.fullmatch(r"seed-sim-v1-[0-9a-f]{16}", model_version) is None
+        or re.fullmatch(r"seed-sim-v2-[0-9a-f]{16}", model_version) is None
         or not 0.0 < threshold <= 1.0
         or min_n <= 0
         or max_n < min_n
@@ -503,6 +636,7 @@ def load_seed_model(model_dir: str | os.PathLike[str]) -> SeedSimilarityModel:
         manifest.get("sample_count") != len(examples)
         or manifest.get("threshold") != artifact.get("threshold")
         or manifest.get("preprocessing") != artifact.get("preprocessing")
+        or manifest.get("channel_weights") != artifact.get("channel_weights")
         or manifest.get("vectorizer") != artifact.get("vectorizer")
     ):
         raise ModelLoadError("manifest 与模型参数不一致")
@@ -515,6 +649,7 @@ def load_seed_model(model_dir: str | os.PathLike[str]) -> SeedSimilarityModel:
         idf=idf,
         examples=examples,
         vectors=vectors,
+        channel_weights=channel_weights,
     )
 
 

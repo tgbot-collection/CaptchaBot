@@ -1,14 +1,14 @@
 # 共享接口约定
 
-## 统一样本结构 v1
+## 统一样本结构 v2
 以下只是示例，**不是真实 Telegram 记录**：
 
 ```json
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "source": "rule",
   "message": {"chat_id": -100123, "message_id": 42, "date": "2026-11-04T08:00:00Z", "text": "帮我收米 日入上W", "caption": null, "entities": [], "media_type": null},
-  "user": {"id": 12345, "username": null, "first_name": "Example", "last_name": null, "is_premium": null, "bio": null},
+  "user": {"id": 12345, "username": null, "first_name": "Example", "last_name": null, "is_premium": null, "bio": null, "bio_state": "empty"},
   "via_bot": {"id": null, "username": null},
   "matched_rule": "blacklist_message:收米",
   "model": {"version": "v0", "kind": "similarity", "decision": "spam_like", "score": 0.83},
@@ -23,7 +23,7 @@
 
 Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 
-- `sample_from_message(message, matched_rule=..., bio=None)` 只同步读取消息已有字段，不执行 Telegram API 请求；缺失 Bio 保持 `null`。
+- `sample_from_message(message, matched_rule=..., bio=None, bio_state=...)` 只同步读取消息已有字段，不执行 Telegram API 请求；缺失 Bio 保持 `null`。
 - `message.text` 与 `message.caption` 分开保存；纯媒体或只有 caption 时 `message.text=""`，不把 caption 伪装成 text。
 - `message.date` 输出 UTC ISO 8601；`media_type` 和 entity type 输出稳定字符串。entities 只保存类型、UTF-16 offset/length 以及 URL、关联用户 ID、语言、custom emoji ID 等必要字段。
 - 缺失 `from_user` 时保留字段全为 null 的 user 快照；Inline Bot 只保存 `via_bot.id` 和 `via_bot.username`。
@@ -32,6 +32,8 @@ Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 - Story 003 增加 `SPAM_CAPTURE_QUEUE_SIZE`、`SPAM_CAPTURE_WORKERS`、`SPAM_BIO_TIMEOUT_SECONDS`、`SPAM_BIO_CACHE_TTL_SECONDS`、`SPAM_BIO_CACHE_SIZE`、`SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS`；具体默认值见 `README.md` 和 `docs/notes/003-notes.md`。
 - Story 006 增加 `SPAM_INFERENCE_CONCURRENCY`，默认 `2`，必须为正整数；只限制本地模型推理，不改变采集队列和 D1 客户端的既有并发上限。
 - Story 009 增加 `SPAM_CAPTURE_GROUPS`：空值关闭普通群消息采集；`all` 允许全部群，负数群 ID 逗号列表仅允许指定群。普通群消息为 `source=group/status=pending/label=null`，仅通过管理员 `/review` 领取；重训仍只导出 reviewed。由于 D1 尚未部署，最终 `001_create_samples.sql` 直接支持 `rule/manual/group`，不保留额外升级脚本。配置名与既有 `SPAM_CAPTURE_*` 保持一致。
+- Story 010 将样本升级为 `schema_version=2`，`bio_state` 仅允许 `present/empty/unavailable/not_requested`。普通群消息复用 Handler 已取得的 Bio，不新增请求；规则提前命中的 Bio 仍在删除后的有界 worker 中补充。项目尚未正式积累数据，因此直接重建 D1 和模型，不提供旧库升级、回填或旧模型兼容层。
+- Story 011 将 Python 包统一重命名为 `spamdet`，默认模型目录改为 `models/spamdet`，不保留旧包兼容层。开发期 `make reset-d1` 只在双重确认数据库 ID 后删除 `samples` 表并执行最终 Migration；它不删除 D1 database 或其他表。
 
 ## D1 存储约定
 Story 002 已确定 `samples` 字段：`id`（整数主键）、`schema_version`、`source`、`message_json`、`text`、`status`（`pending`/`reviewed`）、`label`（NULL/`spam`/`ham`）、`model_version`、`prediction`、`prediction_score`、`created_at`、`reviewed_at`、`reviewed_by`、`review_chat_id`、`review_message_id`、`dedupe_key`。命中规则和可选 Bio 存在完整样本 JSON `message_json` 中。数据库通过 CHECK 约束强制 pending/NULL 与 reviewed/人工标签配对，并为状态/标签、reviewed 导出和唯一去重键建立索引。
@@ -40,7 +42,7 @@ Story 002 已确定 `samples` 字段：`id`（整数主键）、`schema_version`
 
 Story 002 的公共存储接口：
 
-- `D1Client.create_pending(sample) -> int`：只接受带 `chat_id/message_id` 的 `rule/pending` 样本。
+- `D1Client.create_pending(sample) -> int`：只接受带 `chat_id/message_id` 的 `rule/group pending` 样本。
 - `D1Client.review(id, label, admin_id) -> ReviewOutcome`：返回 `changed` 或 `already_reviewed`；ID 不存在抛出 `D1NotFoundError`。
 - `D1Client.set_review_message(id, chat_id, message_id) -> None`：在 Telegram 通知发送成功后记录单管理员私聊位置；不存在的样本抛出 `D1NotFoundError`。
 - `D1Client.get(id) -> StoredSample`：`message_json` 已解析为 `StoredSample.sample` 字典。
@@ -62,7 +64,7 @@ UPDATE samples SET status='reviewed', label=?, reviewed_at=CURRENT_TIMESTAMP, re
 
 V0 的 `score` 表示**相似度**，不是 `P(spam)`；`unknown` 不等于 `ham`。模型不存在时返回 `unavailable`，审核仍可继续。推理不得触发管理动作。
 
-Story 005 已将接口实现为 `spam_learning.seed_model.PredictionResult` 和
+Story 005 已将接口实现为 `spamdet.seed_model.PredictionResult` 和
 `SeedSimilarityModel.predict(sample)`；文本便捷接口是 `predict_text(text)`。有效模型只会输出
 `spam_like` 或 `unknown`，缺失、损坏或不受支持的模型由
 `SimilarityPredictor.from_path()` 降级为 `unavailable`，此时 `score` 和 `model_version` 为 null。
@@ -73,10 +75,14 @@ Story 005 已将接口实现为 `spam_learning.seed_model.PredictionResult` 和
 `ModelSuggestion.version`，不能新增第二个含义重复的样本字段。模型不可用时二者均为
 `null`；`ModelSuggestion.version` 因此是可空字段，不能伪造版本字符串。
 
-初始模型只使用 `message.text`，为空时回退到 `message.caption`，不使用种子中不存在的
-Bio、昵称或用户名特征。预处理和训练参数全部进入 manifest：NFKC、Latin casefold、默认移除
-已知零宽控制符、空白折叠、URL/mention 标记化、带文本边界的字符 2–5 gram、sublinear TF、
-平滑 IDF 和 L2 归一化。原始 Unicode 种子独立保留，用于 `nearest_example`。
+Story 010 起，`predict(sample)` 使用三个隔离通道：message（text 为空时回退 caption）、Bio、
+display_name（first_name + last_name）。各通道字符 n-gram 使用 `m:/b:/n:` 前缀，默认权重为
+`1.0/0.75/0.25`；`username`、`user.id`、`source`、`matched_rule`、`bio_state`、人工标签和历史预测
+绝不作为模型特征。`predict_text(text)` 仍是仅提供 message 通道的便捷接口。预处理和训练参数全部
+进入 manifest：NFKC、Latin casefold、默认移除已知零宽控制符、空白折叠、Telegram invite、
+URL/mention 标记化、带文本边界的字符 2–5 gram、sublinear TF、平滑 IDF、通道权重和 L2 归一化。
+原始 Unicode 独立保留，用于审核和 `nearest_example`。仅从 `spam.txt` 构建的初始模型没有 Bio/
+显示名称语料，因此这些通道要在 D1 人工审核数据重训后才产生已知特征。
 
 模型目录包含原子发布的 `manifest.json` 和内容哈希命名的 JSON artifact。模型版本由有序去重
 语料及全部训练参数的 SHA-256 派生，不写入当前时间；相同输入和参数必须字节级可复现。
@@ -94,13 +100,15 @@ Story 006 的在线接入约定：
 
 Story 007 的离线重训和模型发布约定：
 
-- `python -m spam_learning.retrain export` 只调用 `D1Client.export_reviewed()`，并再次验证每条记录为
-  `status=reviewed`、`label=spam/ham` 和兼容的 `schema_version=1`。pending、规则命中和历史预测
+- `python -m spamdet.retrain export` 只调用 `D1Client.export_reviewed()`，并再次验证每条记录为
+  `status=reviewed`、`label=spam/ham` 和兼容的 `schema_version=2`。pending、规则命中和历史预测
   均不能成为训练标签。
-- 导出 JSONL 保留原始 Unicode 文本和来源引用，特征归一化另存。相同归一化文本、相同标签时
-  合并来源；同一归一化文本出现相反标签时中止，不静默覆盖。
-- `DatasetRecord` 使用 `message.text`，为空时回退 `message.caption`。模板分组键由归一化模板的
-  SHA-256 摘要生成，不保存 Telegram 用户 ID；数据集使用 canonical JSON SHA-256 校验。
+- 导出 format v2 JSONL 保留 message、Bio、display_name 原始 Unicode、各自归一化副本和来源引用。
+  相同归一化多字段样本、相同标签时合并来源；出现相反标签时中止，不静默覆盖。
+- 用户 ID 只生成不可逆 actor 摘要用于离线分组，绝不进入模型。相同用户、消息模板或 Bio 模板
+  通过连通分量整体切分，不能横跨训练集和测试集；数据集使用 canonical JSON SHA-256 校验。
+- 构建报告记录 Spam/Ham 的 Bio、显示名称、用户和模板覆盖。若只有一类包含 Bio，拒绝构建
+  多字段二分类候选。条件允许时在同一留出集比较 message-only、message+bio 和完整三通道。
 - 相似度候选使用所有确认 Spam，Ham 为零也必须可构建。`--classifier` 只有在两类都能形成至少
   两个模板组、从而得到两类齐全且无模板组交叉的训练/测试集时才生效；否则回退相似度候选。
   该条件只表示能执行评估，不是质量保证。
@@ -117,7 +125,7 @@ Story 007 的离线重训和模型发布约定：
 
 ## 故障处理
 - D1 写入失败：记录脱敏错误，不发送指向不存在记录的审核按钮；现有规则删除不受影响。
-- Bio 查询失败：存 null，不能拖慢删除。
+- Bio 查询失败：存 `bio=null/bio_state=unavailable`，不能拖慢删除。
 - D1 写入成功但 Telegram 通知失败：记录仍是 pending；以后可人工补偿。
 - 模型失败：记为 `unavailable`，继续采集和审核。
 - 回调失败：按钮保持可重试，不能提前显示成功。

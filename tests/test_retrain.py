@@ -5,9 +5,9 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from spam_learning.d1 import StoredSample
-from spam_learning.model_loader import LocalPredictor
-from spam_learning.retrain import (
+from spamdet.d1 import StoredSample
+from spamdet.model_loader import LocalPredictor
+from spamdet.retrain import (
     RetrainError,
     approve_candidate,
     build_candidate,
@@ -17,12 +17,29 @@ from spam_learning.retrain import (
 )
 
 
-def stored(sample_id: int, text: str, label: str, *, status: str = "reviewed") -> StoredSample:
+def stored(
+    sample_id: int,
+    text: str,
+    label: str,
+    *,
+    status: str = "reviewed",
+    bio: str | None = None,
+    first_name: str | None = None,
+) -> StoredSample:
     return StoredSample(
         id=sample_id,
-        schema_version=1,
+        schema_version=2,
         source="rule",
-        sample={"message": {"text": text, "caption": None}, "user": {"id": sample_id}},
+        sample={
+            "message": {"text": text, "caption": None},
+            "user": {
+                "id": sample_id,
+                "first_name": first_name,
+                "last_name": None,
+                "bio": bio,
+                "bio_state": "present" if bio else "empty",
+            },
+        },
         text=text,
         status=status,
         label=label,
@@ -39,6 +56,23 @@ def stored(sample_id: int, text: str, label: str, *, status: str = "reviewed") -
 
 
 class RetrainTests(unittest.TestCase):
+    def test_classifier_rejects_one_sided_bio_coverage(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            seed = root / "spam.txt"
+            seed.write_text("种子甲\n种子乙\n", encoding="utf-8")
+            dataset = build_dataset(
+                seed,
+                [
+                    stored(1, "推广甲", "spam", bio="联系 @worker"),
+                    stored(2, "推广乙", "spam", bio="加入 https://t.me/+example"),
+                    stored(3, "正常甲", "ham"),
+                    stored(4, "正常乙", "ham"),
+                ],
+            )
+            with self.assertRaisesRegex(RetrainError, "只有一类包含 Bio"):
+                build_candidate(dataset, root / "candidates", classifier=True)
+
     def test_export_uses_only_reviewed_and_rejects_pending(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             seed = Path(temporary) / "spam.txt"

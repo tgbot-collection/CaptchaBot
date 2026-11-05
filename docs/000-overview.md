@@ -26,6 +26,9 @@
 6. `006-inference.md`：模型预测接入审核通知。
 7. `007-retrain.md`：D1 导出、重新训练、可选二分类模型。
 8. `008-deploy.md`：多架构 Docker 部署和端到端验收。
+9. `009-group-recording.md`：按群选择普通消息采集并人工审核。
+10. `010-profile-features.md`：将 Bio 和显示名称作为隔离特征通道接入训练与推理。
+11. `011-package-operations.md`：缩短 Python 包名并整理带保护的 D1/模型 Make 运维入口。
 
 ## V1 明确不做
 AI 自动删除/封禁、头像识别、对所有未命中关键词消息的 Shadow Mode、在线自动学习、定时重训、Cloudflare Worker 网关、外部 LLM API。

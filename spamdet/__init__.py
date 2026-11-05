@@ -2,6 +2,7 @@
 
 from .config import ConfigError, SpamLearningConfig
 from .capture import CaptureService
+from .features import ChannelWeights, FeatureChannels, extract_feature_channels
 from .schemas import (
     SCHEMA_VERSION,
     EntitySnapshot,
@@ -31,12 +32,14 @@ __all__ = [
     "SCHEMA_VERSION",
     "ConfigError",
     "CaptureService",
+    "ChannelWeights",
     "D1APIError",
     "D1Client",
     "D1Error",
     "D1HTTPError",
     "D1NotFoundError",
     "EntitySnapshot",
+    "FeatureChannels",
     "MessageSnapshot",
     "InferenceService",
     "ModelStatus",
@@ -52,6 +55,7 @@ __all__ = [
     "ViaBotSnapshot",
     "sample_from_message",
     "sample_from_seed_text",
+    "extract_feature_channels",
     "render_dataset_stats",
     "render_model_status",
     "render_pending_notification",

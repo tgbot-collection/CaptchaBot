@@ -19,11 +19,17 @@ from .binary_model import LabeledText, load_binary_model, train_binary_model
 from .config import ConfigError, SpamLearningConfig
 from .d1 import D1Client, StoredSample
 from .model_loader import LocalPredictor
+from .features import ChannelWeights, FeatureChannels
 from .schemas import SCHEMA_VERSION
-from .seed_model import PreprocessConfig, normalize_text, read_seed_examples, train_seed_model
+from .seed_model import (
+    PreprocessConfig,
+    normalize_text,
+    read_seed_examples,
+    train_feature_similarity_model,
+)
 
 
-DATASET_FORMAT_VERSION = 1
+DATASET_FORMAT_VERSION = 2
 REGRESSION_FORMAT_VERSION = 1
 _TEMPLATE_DIGITS_RE = re.compile(r"\d+")
 _TEMPLATE_ASCII_TOKEN_RE = re.compile(r"[a-z0-9_]{6,}", re.IGNORECASE)
@@ -36,17 +42,33 @@ class RetrainError(ValueError):
 @dataclass(frozen=True, slots=True)
 class DatasetRecord:
     text: str
+    bio: str
+    display_name: str
     label: str
-    normalized: str
-    template_group: str
+    normalized_message: str
+    normalized_bio: str
+    normalized_display_name: str
+    message_template_group: str
+    bio_template_group: str | None
+    actor_groups: tuple[str, ...]
     sources: tuple[dict[str, Any], ...]
+
+    @property
+    def channels(self) -> FeatureChannels:
+        return FeatureChannels(self.text, self.bio, self.display_name)
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "text": self.text,
+            "bio": self.bio,
+            "display_name": self.display_name,
             "label": self.label,
-            "normalized": self.normalized,
-            "template_group": self.template_group,
+            "normalized_message": self.normalized_message,
+            "normalized_bio": self.normalized_bio,
+            "normalized_display_name": self.normalized_display_name,
+            "message_template_group": self.message_template_group,
+            "bio_template_group": self.bio_template_group,
+            "actor_groups": list(self.actor_groups),
             "sources": list(self.sources),
         }
 
@@ -57,6 +79,7 @@ class DatasetSummary:
     dataset_sha256: str
     class_counts: Mapping[str, int]
     source_counts: Mapping[str, int]
+    feature_coverage: Mapping[str, Mapping[str, int]]
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,6 +121,33 @@ def _template_group(normalized: str) -> str:
     return _sha256(template.encode("utf-8"))[:24]
 
 
+def _actor_group(user_id: object, fallback: str) -> str:
+    if isinstance(user_id, int):
+        return _sha256(f"telegram-user-v1:{user_id}".encode("utf-8"))[:24]
+    return _sha256(f"sample-v1:{fallback}".encode("utf-8"))[:24]
+
+
+def _feature_coverage(records: Sequence[DatasetRecord]) -> dict[str, dict[str, int]]:
+    return {
+        label: {
+            "samples": sum(record.label == label for record in records),
+            "bio": sum(record.label == label and bool(record.normalized_bio) for record in records),
+            "display_name": sum(
+                record.label == label and bool(record.normalized_display_name) for record in records
+            ),
+            "actors": len(
+                {
+                    actor
+                    for record in records
+                    if record.label == label
+                    for actor in record.actor_groups
+                }
+            ),
+        }
+        for label in ("spam", "ham")
+    }
+
+
 def _stored_text(item: StoredSample) -> str:
     message = item.sample.get("message")
     if not isinstance(message, dict):
@@ -110,6 +160,20 @@ def _stored_text(item: StoredSample) -> str:
     return value
 
 
+def _stored_channels(item: StoredSample) -> FeatureChannels:
+    message = _stored_text(item)
+    user = item.sample.get("user")
+    if not isinstance(user, dict):
+        user = {}
+    bio = user.get("bio") if isinstance(user.get("bio"), str) else ""
+    display_name = " ".join(
+        part.strip()
+        for part in (user.get("first_name"), user.get("last_name"))
+        if isinstance(part, str) and part.strip()
+    )
+    return FeatureChannels(message, bio, display_name)
+
+
 def build_dataset(
     seed_path: str | os.PathLike[str],
     reviewed: Iterable[StoredSample],
@@ -117,8 +181,8 @@ def build_dataset(
     preprocessing: PreprocessConfig = PreprocessConfig(),
 ) -> DatasetSummary:
     seed_examples, _, _ = read_seed_examples(seed_path, preprocessing)
-    raw: list[tuple[str, str, dict[str, Any]]] = [
-        (item.raw, "spam", {"kind": "seed", "line": index})
+    raw: list[tuple[FeatureChannels, str, str, dict[str, Any]]] = [
+        (FeatureChannels(message=item.raw), "spam", f"seed:{index}", {"kind": "seed", "line": index})
         for index, item in enumerate(seed_examples, 1)
     ]
     for item in reviewed:
@@ -126,10 +190,14 @@ def build_dataset(
             raise RetrainError(f"D1 导出包含非人工审核样本 id={item.id}")
         if item.schema_version != SCHEMA_VERSION:
             raise RetrainError(f"D1 样本 {item.id} 的 schema_version 不兼容")
+        channels = _stored_channels(item)
+        user = item.sample.get("user")
+        user_id = user.get("id") if isinstance(user, dict) else None
         raw.append(
             (
-                _stored_text(item),
+                channels,
                 item.label,
+                _actor_group(user_id, str(item.id)),
                 {
                     "kind": "d1",
                     "id": item.id,
@@ -140,37 +208,67 @@ def build_dataset(
         )
 
     grouped: dict[str, dict[str, Any]] = {}
-    for text, label, source in raw:
-        normalized = normalize_text(text, preprocessing)
-        if not normalized:
+    for channels, label, actor_group, source in raw:
+        normalized_message = normalize_text(channels.message, preprocessing)
+        normalized_bio = normalize_text(channels.bio, preprocessing)
+        normalized_display_name = normalize_text(channels.display_name, preprocessing)
+        if not (normalized_message or normalized_bio or normalized_display_name):
             continue
-        existing = grouped.get(normalized)
+        normalized_key = _canonical_json(
+            {
+                "message": normalized_message,
+                "bio": normalized_bio,
+                "display_name": normalized_display_name,
+            }
+        ).decode("utf-8")
+        existing = grouped.get(normalized_key)
         if existing is not None and existing["label"] != label:
-            raise RetrainError("同一归一化文本同时存在 spam/ham 标签，必须人工解决冲突")
+            raise RetrainError("同一归一化多字段样本同时存在 spam/ham 标签，必须人工解决冲突")
         if existing is None:
-            grouped[normalized] = {"text": text, "label": label, "sources": [source]}
+            grouped[normalized_key] = {
+                "channels": channels,
+                "label": label,
+                "sources": [source],
+                "actor_groups": {actor_group},
+                "normalized_message": normalized_message,
+                "normalized_bio": normalized_bio,
+                "normalized_display_name": normalized_display_name,
+            }
         else:
             existing["sources"].append(source)
+            existing["actor_groups"].add(actor_group)
 
     records = tuple(
         DatasetRecord(
-            text=value["text"],
+            text=value["channels"].message,
+            bio=value["channels"].bio,
+            display_name=value["channels"].display_name,
             label=value["label"],
-            normalized=normalized,
-            template_group=_template_group(normalized),
+            normalized_message=value["normalized_message"],
+            normalized_bio=value["normalized_bio"],
+            normalized_display_name=value["normalized_display_name"],
+            message_template_group=_template_group(value["normalized_message"]),
+            bio_template_group=(
+                _template_group(value["normalized_bio"])
+                if value["normalized_bio"]
+                else None
+            ),
+            actor_groups=tuple(sorted(value["actor_groups"])),
             sources=tuple(value["sources"]),
         )
-        for normalized, value in sorted(grouped.items())
+        for _, value in sorted(grouped.items())
     )
     if not any(record.label == "spam" for record in records):
         raise RetrainError("合并数据集没有已确认 Spam")
     payload = [record.to_dict() for record in records]
     source_counts = Counter(source["kind"] for record in records for source in record.sources)
+    feature_coverage = _feature_coverage(records)
     return DatasetSummary(
         records=records,
         dataset_sha256=_sha256(_canonical_json(payload)),
         class_counts=dict(Counter(record.label for record in records)),
         source_counts=dict(source_counts),
+        feature_coverage=feature_coverage,
     )
 
 
@@ -184,6 +282,7 @@ def write_dataset(path: str | os.PathLike[str], dataset: DatasetSummary) -> None
         "dataset_sha256": dataset.dataset_sha256,
         "class_counts": dict(dataset.class_counts),
         "source_counts": dict(dataset.source_counts),
+        "feature_coverage": {key: dict(value) for key, value in dataset.feature_coverage.items()},
     }
     content = b"\n".join([_canonical_json(header), *(_canonical_json(record.to_dict()) for record in dataset.records)]) + b"\n"
     temporary = destination.with_name(f".{destination.name}.tmp")
@@ -199,9 +298,15 @@ def read_dataset(path: str | os.PathLike[str]) -> DatasetSummary:
         records = tuple(
             DatasetRecord(
                 text=value["text"],
+                bio=value["bio"],
+                display_name=value["display_name"],
                 label=value["label"],
-                normalized=value["normalized"],
-                template_group=value["template_group"],
+                normalized_message=value["normalized_message"],
+                normalized_bio=value["normalized_bio"],
+                normalized_display_name=value["normalized_display_name"],
+                message_template_group=value["message_template_group"],
+                bio_template_group=value["bio_template_group"],
+                actor_groups=tuple(value["actor_groups"]),
                 sources=tuple(value["sources"]),
             )
             for value in values
@@ -216,28 +321,81 @@ def read_dataset(path: str | os.PathLike[str]) -> DatasetSummary:
         raise RetrainError("重训数据集 hash 校验失败")
     if any(record.label not in {"spam", "ham"} for record in records):
         raise RetrainError("重训数据集包含非法标签")
+    feature_coverage = _feature_coverage(records)
+    if header.get("feature_coverage") != feature_coverage:
+        raise RetrainError("重训数据集特征覆盖统计不一致")
     return DatasetSummary(
         records=records,
         dataset_sha256=actual_hash,
         class_counts=dict(Counter(record.label for record in records)),
         source_counts=dict(Counter(source["kind"] for record in records for source in record.sources)),
+        feature_coverage=feature_coverage,
     )
 
 
 def _grouped_split(records: Sequence[DatasetRecord]) -> tuple[list[DatasetRecord], list[DatasetRecord]] | None:
-    by_label: dict[str, dict[str, list[DatasetRecord]]] = defaultdict(lambda: defaultdict(list))
-    for record in records:
-        by_label[record.label][record.template_group].append(record)
-    if any(len(by_label[label]) < 2 for label in ("spam", "ham")):
+    parent = list(range(len(records)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def union(left: int, right: int) -> None:
+        left_root, right_root = find(left), find(right)
+        if left_root != right_root:
+            parent[right_root] = left_root
+
+    owners: dict[str, int] = {}
+    for index, record in enumerate(records):
+        tokens = [
+            *(f"actor:{value}" for value in record.actor_groups),
+            f"message:{record.message_template_group}",
+        ]
+        if record.bio_template_group is not None:
+            tokens.append(f"bio:{record.bio_template_group}")
+        for token in tokens:
+            if token in owners:
+                union(index, owners[token])
+            else:
+                owners[token] = index
+
+    components: dict[int, list[int]] = defaultdict(list)
+    for index in range(len(records)):
+        components[find(index)].append(index)
+    component_labels = {
+        root: {records[index].label for index in indices}
+        for root, indices in components.items()
+    }
+    if any(sum(label in labels for labels in component_labels.values()) < 2 for label in ("spam", "ham")):
         return None
-    test_groups: set[tuple[str, str]] = set()
+
+    selected: set[int] = set()
     for label in ("spam", "ham"):
-        groups = sorted(by_label[label])
-        test_count = max(1, round(len(groups) * 0.2))
-        for group in groups[: min(test_count, len(groups) - 1)]:
-            test_groups.add((label, group))
-    train = [record for record in records if (record.label, record.template_group) not in test_groups]
-    test = [record for record in records if (record.label, record.template_group) in test_groups]
+        candidates = sorted(
+            root for root, labels in component_labels.items()
+            if label in labels and root not in selected
+        )
+        chosen = next(
+            (
+                root
+                for root in candidates
+                if {
+                    records[index].label
+                    for other_root, indices in components.items()
+                    if other_root not in selected | {root}
+                    for index in indices
+                } == {"spam", "ham"}
+            ),
+            None,
+        )
+        if chosen is None:
+            return None
+        selected.add(chosen)
+
+    train = [record for root, indices in components.items() if root not in selected for index in indices for record in [records[index]]]
+    test = [record for root, indices in components.items() if root in selected for index in indices for record in [records[index]]]
     if {record.label for record in train} != {"spam", "ham"} or {record.label for record in test} != {"spam", "ham"}:
         return None
     return train, test
@@ -256,14 +414,25 @@ def _metrics(expected: Sequence[str], predicted: Sequence[str]) -> EvaluationMet
     )
 
 
-def _evaluate_classifier(train: Sequence[DatasetRecord], test: Sequence[DatasetRecord], root: Path, dataset_hash: str) -> EvaluationMetrics:
+def _labeled(record: DatasetRecord) -> LabeledText:
+    return LabeledText(record.text, record.label, record.bio, record.display_name)
+
+
+def _evaluate_classifier(
+    train: Sequence[DatasetRecord],
+    test: Sequence[DatasetRecord],
+    root: Path,
+    dataset_hash: str,
+    channel_weights: ChannelWeights,
+) -> EvaluationMetrics:
     summary = train_binary_model(
-        [LabeledText(item.text, item.label) for item in train],
+        [_labeled(item) for item in train],
         root,
         dataset_sha256=dataset_hash,
+        channel_weights=channel_weights,
     )
     model = load_binary_model(summary.manifest_path.parent)
-    predicted = [model.predict_text(item.text).decision for item in test]
+    predicted = [model.predict_channels(item.channels).decision for item in test]
     return _metrics([item.label for item in test], predicted)
 
 
@@ -309,22 +478,41 @@ def build_candidate(
     old_model_path: str | os.PathLike[str] | None = None,
 ) -> CandidateSummary:
     split = _grouped_split(dataset.records) if classifier else None
+    if classifier:
+        bio_counts = [dataset.feature_coverage.get(label, {}).get("bio", 0) for label in ("spam", "ham")]
+        if (bio_counts[0] == 0) != (bio_counts[1] == 0):
+            raise RetrainError("Spam/Ham 只有一类包含 Bio，拒绝构建会学习缺失捷径的二分类候选")
     evaluation: dict[str, Any] | None = None
     with tempfile.TemporaryDirectory() as temporary_name:
         temporary = Path(temporary_name)
         model_dir = temporary / "model"
         if classifier and split is not None:
             train, test = split
-            holdout = _evaluate_classifier(train, test, temporary / "evaluation", dataset.dataset_sha256)
+            feature_sets = {
+                "message_only": ChannelWeights(1.0, 0.0, 0.0),
+                "message_bio": ChannelWeights(1.0, 0.75, 0.0),
+                "message_bio_display_name": ChannelWeights(),
+            }
+            metrics = {
+                name: _evaluate_classifier(
+                    train,
+                    test,
+                    temporary / f"evaluation-{name}",
+                    dataset.dataset_sha256,
+                    weights,
+                ).to_dict()
+                for name, weights in feature_sets.items()
+            }
             evaluation = {
-                "strategy": "deterministic_template_group_holdout",
+                "strategy": "deterministic_actor_message_bio_component_holdout",
                 "train_count": len(train),
                 "test_count": len(test),
-                "metrics": holdout.to_dict(),
+                "feature_sets": metrics,
+                "feature_coverage": {key: dict(value) for key, value in dataset.feature_coverage.items()},
                 "warning": "样本量门槛不代表模型质量，分数未校准",
             }
             summary = train_binary_model(
-                [LabeledText(item.text, item.label) for item in dataset.records],
+                [_labeled(item) for item in dataset.records],
                 model_dir,
                 dataset_sha256=dataset.dataset_sha256,
                 evaluation=evaluation,
@@ -336,9 +524,11 @@ def build_candidate(
             manifest["source_counts"] = dict(dataset.source_counts)
             manifest_path.write_bytes(_canonical_json(manifest))
         else:
-            spam_file = temporary / "confirmed-spam.txt"
-            spam_file.write_text("\n".join(item.text for item in dataset.records if item.label == "spam") + "\n", encoding="utf-8")
-            summary = train_seed_model(spam_file, model_dir)
+            spam_records = [item for item in dataset.records if item.label == "spam"]
+            summary = train_feature_similarity_model(
+                [(item.channels, item.text) for item in spam_records],
+                model_dir,
+            )
             kind = "similarity"
             model_version = summary.model_version
             manifest_path = model_dir / "manifest.json"
@@ -348,6 +538,7 @@ def build_candidate(
                     "dataset_sha256": dataset.dataset_sha256,
                     "class_counts": dict(dataset.class_counts),
                     "source_counts": dict(dataset.source_counts),
+                    "feature_coverage": {key: dict(value) for key, value in dataset.feature_coverage.items()},
                     "schema_compatibility": [SCHEMA_VERSION],
                     "evaluation": None,
                 }

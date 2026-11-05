@@ -21,7 +21,7 @@ from pyrogram.raw import functions as raw_functions
 from pyrogram.raw import types as raw_types
 from zhconv import convert
 
-from spam_learning import (
+from spamdet import (
     CaptureService,
     D1Client,
     D1Error,
@@ -47,7 +47,7 @@ image = ImageCaptcha()
 PREDEFINED_STR = re.sub(r"[1l0oOI]", "", string.ascii_letters + string.digits)
 IDLE_SECONDS = 120
 scheduler = AsyncIOScheduler()
-spam_learning_config = SpamLearningConfig.from_env()
+spamdet_config = SpamLearningConfig.from_env()
 spam_capture_service: CaptureService | None = None
 spam_d1_client: D1Client | None = None
 spam_review_service: ReviewService | None = None
@@ -84,7 +84,7 @@ async def dataset_handler(client: "Client", message: "types.Message"):
 async def model_handler(client: "Client", message: "types.Message"):
     service = spam_inference_service
     actor_id = getattr(getattr(message, "from_user", None), "id", None)
-    if service is None or actor_id != spam_learning_config.admin_id:
+    if service is None or actor_id != spamdet_config.admin_id:
         await message.reply_text("你没有查看模型状态的权限。")
         return
     await message.reply_text(render_model_status(service.status))
@@ -312,6 +312,7 @@ async def delete_rule_message(
     *,
     matched_rule: str,
     bio: str | None = None,
+    bio_state: str | None = None,
 ) -> None:
     """先同步快照，再执行原删除；删除尝试后非阻塞提交采集。"""
 
@@ -319,7 +320,12 @@ async def delete_rule_message(
     sample = None
     if service is not None:
         try:
-            sample = sample_from_message(message, matched_rule=matched_rule, bio=bio)
+            sample = sample_from_message(
+                message,
+                matched_rule=matched_rule,
+                bio=bio,
+                bio_state=bio_state,
+            )
         except Exception as exc:
             # 快照异常不能阻止既有删除，也不记录可能含敏感数据的异常原文。
             logging.warning("Spam 样本快照失败（%s）", type(exc).__name__)
@@ -432,7 +438,12 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
     elif user_sticker in blacklist_sticker:
         direct_rule = f"blacklist_sticker:{user_sticker}"
     if direct_rule is not None:
-        await delete_rule_message(message, matched_rule=direct_rule, bio=chat.bio)
+        await delete_rule_message(
+            message,
+            matched_rule=direct_rule,
+            bio=chat.bio or None,
+            bio_state="present" if chat.bio else "empty",
+        )
         logging.warning("potential spam message detected (%s)", direct_rule.split(":", 1)[0])
         # just delete the message
         return True
@@ -475,16 +486,28 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
 
     if is_ban:
         logging.info("prepress bad user")
-        await delete_rule_message(message, matched_rule="|".join(matched_rules), bio=chat.bio)
+        await delete_rule_message(
+            message,
+            matched_rule="|".join(matched_rules),
+            bio=chat.bio or None,
+            bio_state="present" if chat.bio else "empty",
+        )
         await ban_user(message.chat.id, sender_id)
     else:
         logging.info("Good user and message")
         service = spam_capture_service
         if (service is not None and user_message.strip()
-                and spam_learning_config.records_group(getattr(message.chat, "id", None))):
+                and spamdet_config.records_group(getattr(message.chat, "id", None))):
             try:
                 # 普通群消息只提取现有字段，不在 Handler 中等待任何网络操作。
-                service.submit(sample_from_message(message, source="group"))
+                service.submit(
+                    sample_from_message(
+                        message,
+                        source="group",
+                        bio=chat.bio or None,
+                        bio_state="present" if chat.bio else "empty",
+                    )
+                )
             except Exception as exc:
                 logging.warning("普通群消息采集失败（%s）", type(exc).__name__)
     return is_ban
@@ -493,29 +516,29 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
 @app.on_start()
 async def startup(client):
     global spam_capture_service, spam_d1_client, spam_review_service, spam_inference_service
-    if spam_learning_config.enabled:
-        assert spam_learning_config.admin_id is not None
-        spam_d1_client = D1Client.from_config(spam_learning_config)
+    if spamdet_config.enabled:
+        assert spamdet_config.admin_id is not None
+        spam_d1_client = D1Client.from_config(spamdet_config)
         spam_review_service = ReviewService(
             client,
             spam_d1_client,
-            admin_id=spam_learning_config.admin_id,
+            admin_id=spamdet_config.admin_id,
         )
         spam_inference_service = InferenceService.from_path(
-            str(spam_learning_config.model_path),
-            max_concurrency=spam_learning_config.inference_concurrency,
+            str(spamdet_config.model_path),
+            max_concurrency=spamdet_config.inference_concurrency,
         )
         spam_capture_service = CaptureService(
             client,
             spam_d1_client,
             spam_review_service,
             inference=spam_inference_service,
-            queue_size=spam_learning_config.capture_queue_size,
-            worker_count=spam_learning_config.capture_workers,
-            bio_timeout=spam_learning_config.bio_timeout_seconds,
-            bio_cache_ttl=spam_learning_config.bio_cache_ttl_seconds,
-            bio_cache_size=spam_learning_config.bio_cache_size,
-            shutdown_timeout=spam_learning_config.capture_shutdown_timeout_seconds,
+            queue_size=spamdet_config.capture_queue_size,
+            worker_count=spamdet_config.capture_workers,
+            bio_timeout=spamdet_config.bio_timeout_seconds,
+            bio_cache_ttl=spamdet_config.bio_cache_ttl_seconds,
+            bio_cache_size=spamdet_config.bio_cache_size,
+            shutdown_timeout=spamdet_config.capture_shutdown_timeout_seconds,
         )
         spam_capture_service.start()
         logging.info(
