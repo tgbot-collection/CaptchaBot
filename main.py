@@ -90,6 +90,20 @@ async def model_handler(client: "Client", message: "types.Message"):
     await message.reply_text(render_model_status(service.status))
 
 
+@app.on_message(filters.command("review") & filters.private)
+async def review_next_handler(client: "Client", message: "types.Message"):
+    service = spam_review_service
+    if service is None or getattr(getattr(message, "from_user", None), "id", None) != service.admin_id:
+        await message.reply_text("你没有审核权限。")
+        return
+    try:
+        if not await service.notify_next_group_pending():
+            await message.reply_text("暂无待领取的普通群消息。")
+    except D1Error as exc:
+        logging.warning("普通群消息审核读取失败（%s）", type(exc).__name__)
+        await message.reply_text("审核数据暂时不可用，请稍后重试。")
+
+
 @app.on_message(filters.new_chat_members)  # only service message
 async def new_chat(client: "Client", message: "types.Message"):
     logging.info("new chat member: %s", message.from_user)
@@ -465,6 +479,14 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
         await ban_user(message.chat.id, sender_id)
     else:
         logging.info("Good user and message")
+        service = spam_capture_service
+        if (service is not None and user_message.strip()
+                and spam_learning_config.records_group(getattr(message.chat, "id", None))):
+            try:
+                # 普通群消息只提取现有字段，不在 Handler 中等待任何网络操作。
+                service.submit(sample_from_message(message, source="group"))
+            except Exception as exc:
+                logging.warning("普通群消息采集失败（%s）", type(exc).__name__)
     return is_ban
 
 

@@ -16,7 +16,7 @@ from spam_learning.d1 import (
     D1NotFoundError,
     ReviewOutcome,
 )
-from spam_learning.d1_migrate import MIGRATION_PATH
+from spam_learning.d1_migrate import GROUP_MIGRATION_PATH, MIGRATION_PATH
 from spam_learning.schemas import MessageSnapshot, ModelSuggestion, SpamSample
 
 
@@ -27,6 +27,7 @@ class SQLiteD1Transport:
         self.connection = sqlite3.connect(":memory:")
         self.connection.row_factory = sqlite3.Row
         self.connection.executescript(MIGRATION_PATH.read_text(encoding="utf-8"))
+        self.connection.executescript(GROUP_MIGRATION_PATH.read_text(encoding="utf-8"))
         self.requests: list[httpx.Request] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
@@ -90,6 +91,17 @@ class D1ClientTests(unittest.IsolatedAsyncioTestCase):
     async def asyncTearDown(self) -> None:
         await self.client._http.aclose()
         self.transport.connection.close()
+
+    async def test_group_sample_stays_unlabeled_until_admin_review(self) -> None:
+        sample = replace(make_sample(), source="group", matched_rule=None)
+        sample_id = await self.client.create_pending(sample)
+        self.assertEqual(sample_id, await self.client.create_pending(sample))
+        pending = await self.client.next_group_pending()
+        self.assertIsNotNone(pending)
+        self.assertEqual(pending.label, None)
+        await self.client.review(sample_id, "ham", 123)
+        self.assertEqual((await self.client.get(sample_id)).label, "ham")
+        self.assertIsNone(await self.client.next_group_pending())
 
     async def test_create_pending_is_idempotent_and_hides_identifiers_in_key(self) -> None:
         sample = make_sample()

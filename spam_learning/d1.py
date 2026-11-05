@@ -167,8 +167,8 @@ class D1Client:
         await self._execute(sql, ())
 
     async def create_pending(self, sample: SpamSample) -> int:
-        if sample.source != "rule" or sample.status != "pending" or sample.label is not None:
-            raise ValueError("create_pending 只接受未标注的 rule/pending 样本")
+        if sample.source not in {"rule", "group"} or sample.status != "pending" or sample.label is not None:
+            raise ValueError("create_pending 只接受未标注的 rule/group pending 样本")
         if sample.message.chat_id is None or sample.message.message_id is None:
             raise ValueError("在线样本必须包含 chat_id 和 message_id")
 
@@ -203,6 +203,14 @@ class D1Client:
         if not existing_rows:
             raise D1APIError("D1 去重写入后未能读取样本")
         return _positive_id(existing_rows[0].get("id"), "已有样本")
+
+    async def next_group_pending(self) -> StoredSample | None:
+        result = await self._query(
+            "SELECT * FROM samples WHERE source = 'group' AND status = 'pending' "
+            "AND review_message_id IS NULL ORDER BY id ASC LIMIT 1", ()
+        )
+        rows = _result_rows(result)
+        return StoredSample.from_row(rows[0]) if rows else None
 
     async def review(self, sample_id: int, label: str, admin_id: int) -> ReviewOutcome:
         sample_id = _positive_id(sample_id, "sample_id")

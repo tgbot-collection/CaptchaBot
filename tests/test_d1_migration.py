@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 import unittest
 
-from spam_learning.d1_migrate import MIGRATION_PATH, validate_migration
+from spam_learning.d1_migrate import GROUP_MIGRATION_PATH, MIGRATION_PATH, validate_migration
 
 
 class D1MigrationTests(unittest.TestCase):
@@ -61,6 +61,23 @@ class D1MigrationTests(unittest.TestCase):
                 VALUES (1, 'keyword', '{}', 'text', 'pending', NULL, 'legacy-source')
                 """
             )
+
+    def test_group_migration_preserves_review_and_is_repeatable(self) -> None:
+        self.connection.execute(
+            "INSERT INTO samples (id,schema_version,source,message_json,text,status,label,reviewed_by,dedupe_key) "
+            "VALUES (9,1,'rule','{}','旧消息','reviewed','ham',123,'old-key')"
+        )
+        sql = GROUP_MIGRATION_PATH.read_text(encoding="utf-8")
+        self.connection.executescript(sql)
+        self.connection.executescript(sql)
+        self.connection.execute(
+            "INSERT INTO samples (schema_version,source,message_json,text,status,dedupe_key) "
+            "VALUES (1,'group','{}','普通消息','pending','new-key')"
+        )
+        self.assertEqual(
+            self.connection.execute("SELECT label,reviewed_by FROM samples WHERE id=9").fetchone(),
+            ("ham", 123),
+        )
 
 
 if __name__ == "__main__":

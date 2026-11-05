@@ -31,6 +31,7 @@ Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 - 基础配置环境变量为 `SPAM_LEARNING_ENABLED`、`SPAM_ADMIN_ID`、`D1_ACCOUNT_ID`、`D1_DATABASE_ID`、`D1_API_TOKEN`、`SPAM_MODEL_PATH`。功能默认关闭；开启时三项 D1 标识/凭证和单个正整数管理员 ID 必填。Story 004 根据实际运维需求将原多管理员草案 `SPAM_ADMIN_IDS` 收敛为单管理员，不保留旧环境变量兼容。
 - Story 003 增加 `SPAM_CAPTURE_QUEUE_SIZE`、`SPAM_CAPTURE_WORKERS`、`SPAM_BIO_TIMEOUT_SECONDS`、`SPAM_BIO_CACHE_TTL_SECONDS`、`SPAM_BIO_CACHE_SIZE`、`SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS`；具体默认值见 `README.md` 和 `docs/notes/003-notes.md`。
 - Story 006 增加 `SPAM_INFERENCE_CONCURRENCY`，默认 `2`，必须为正整数；只限制本地模型推理，不改变采集队列和 D1 客户端的既有并发上限。
+- Story 009 增加 `SPAM_CAPTURE_GROUPS`：空值关闭普通群消息采集；`all` 允许全部群，负数群 ID 逗号列表仅允许指定群。普通群消息为 `source=group/status=pending/label=null`，仅通过管理员 `/review` 领取；重训仍只导出 reviewed。`002_group_samples.sql` 扩展原来源 CHECK 并保留旧记录，需在启用前迁移。配置名与既有 `SPAM_CAPTURE_*` 保持一致。
 
 ## D1 存储约定
 Story 002 已确定 `samples` 字段：`id`（整数主键）、`schema_version`、`source`、`message_json`、`text`、`status`（`pending`/`reviewed`）、`label`（NULL/`spam`/`ham`）、`model_version`、`prediction`、`prediction_score`、`created_at`、`reviewed_at`、`reviewed_by`、`review_chat_id`、`review_message_id`、`dedupe_key`。命中规则和可选 Bio 存在完整样本 JSON `message_json` 中。数据库通过 CHECK 约束强制 pending/NULL 与 reviewed/人工标签配对，并为状态/标签、reviewed 导出和唯一去重键建立索引。

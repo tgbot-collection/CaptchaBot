@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from types import SimpleNamespace
 import unittest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import main
 from spam_learning import ModelStatus, SpamLearningConfig
+from spam_learning.config import ConfigError
 
 
 class RecordingCapture:
@@ -41,6 +42,11 @@ class FakeMessage:
         self.guest_bot_caller_chat = None
         self.deleted = False
         self.delete_error = delete_error
+        self.forward_origin = None
+        self.sticker = None
+        self.contact = None
+        self.document = None
+        self.from_user.emoji_status = None
 
     async def delete(self) -> None:
         self.deleted = True
@@ -107,6 +113,40 @@ class KeywordHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(message.deleted)
         self.assertEqual(len(capture.samples), 1)
         self.assertEqual(capture.samples[0].matched_rule, "blacklist_message:收米")
+
+
+class GroupSelectionTests(unittest.TestCase):
+    def test_allowlist_and_all_are_explicit(self) -> None:
+        base = {"SPAM_LEARNING_ENABLED": "true", "SPAM_ADMIN_ID": "123",
+                "D1_ACCOUNT_ID": "a", "D1_DATABASE_ID": "d", "D1_API_TOKEN": "t"}
+        self.assertFalse(SpamLearningConfig.from_env(base).records_group(-1001))
+        listed = SpamLearningConfig.from_env({**base, "SPAM_CAPTURE_GROUPS": "-1001,-2002"})
+        self.assertTrue(listed.records_group(-1001))
+        self.assertFalse(listed.records_group(-3003))
+        self.assertTrue(SpamLearningConfig.from_env({**base, "SPAM_CAPTURE_GROUPS": "all"}).records_group(-3003))
+        with self.assertRaises(ConfigError):
+            SpamLearningConfig.from_env({**base, "SPAM_CAPTURE_GROUPS": "all,-1001"})
+
+
+class GroupCaptureTests(unittest.IsolatedAsyncioTestCase):
+    async def test_selected_normal_message_is_pending_and_other_group_is_not_recorded(self) -> None:
+        old_service, old_config = main.spam_capture_service, main.spam_learning_config
+        capture = RecordingCapture()
+        main.spam_capture_service = capture
+        main.spam_learning_config = SpamLearningConfig(enabled=True, record_groups=frozenset({-100123}))
+        try:
+            with patch.object(main.app, "get_chat", new=AsyncMock(return_value=SimpleNamespace(bio=None))):
+                first = FakeMessage()
+                self.assertFalse(await main.group_message_preprocess(main.app, first))
+                second = FakeMessage()
+                second.chat.id = -999999
+                self.assertFalse(await main.group_message_preprocess(main.app, second))
+            self.assertEqual(len(capture.samples), 1)
+            self.assertEqual((capture.samples[0].source, capture.samples[0].status, capture.samples[0].label),
+                             ("group", "pending", None))
+            self.assertFalse(first.deleted)
+        finally:
+            main.spam_capture_service, main.spam_learning_config = old_service, old_config
 
 
 class ModelHandlerTests(unittest.IsolatedAsyncioTestCase):
