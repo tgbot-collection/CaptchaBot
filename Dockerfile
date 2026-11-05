@@ -18,6 +18,10 @@ FROM python:3.14-slim AS runner
 WORKDIR /CaptchaBot
 ENV TZ=Asia/Shanghai
 ENV SPAM_MODEL_PATH=/CaptchaBot/models/spamdet
+# 运行容器需要执行 Makefile 中的受保护运维入口（例如 reset-d1）。
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends make \
+    && rm -rf /var/lib/apt/lists/*
 COPY . /CaptchaBot
 COPY --from=pybuilder /root/.local /usr/local
 COPY --from=pybuilder /opt/captchabot-model /CaptchaBot/models/spamdet

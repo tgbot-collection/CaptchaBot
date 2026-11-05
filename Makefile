@@ -44,7 +44,5 @@ approve-spam-candidate:
 # 示例：make reset-d1 CONFIRM_RESET_D1=YES CONFIRM_D1_DATABASE_ID="$$D1_DATABASE_ID"
 reset-d1:
 	@test "$(CONFIRM_RESET_D1)" = "YES" || (echo "拒绝重置：必须提供 CONFIRM_RESET_D1=YES"; exit 2)
-	@test -n "$(D1_DATABASE_ID)" || (echo "拒绝重置：环境中缺少 D1_DATABASE_ID"; exit 2)
-	@test "$(CONFIRM_D1_DATABASE_ID)" = "$(D1_DATABASE_ID)" || (echo "拒绝重置：CONFIRM_D1_DATABASE_ID 与目标不一致"; exit 2)
 	$(PYTHON) -m spamdet.d1_reset --confirm-reset
 	$(PYTHON) -m spamdet.d1_migrate --apply

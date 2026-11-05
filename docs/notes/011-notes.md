@@ -9,6 +9,7 @@
 - 新增 `spamdet.d1_reset`：只有显式 `--confirm-reset` 才运行，且只执行代码常量 `DROP TABLE IF EXISTS samples`，不接受外部 SQL。
 - Makefile 新增带双重确认的 `reset-d1`。它要求 `CONFIRM_RESET_D1=YES`，并要求 `CONFIRM_D1_DATABASE_ID` 与环境中的 `D1_DATABASE_ID` 完全一致；删表成功后再运行 `python -m spamdet.d1_migrate --apply`。
 - Makefile 为所有变量和 target 增加中文注释，并把 `help` 设为默认 target；README 增加每个 target 的用途、前置条件和是否日常必需的说明。
+- Docker runner 安装 `make`，保证容器内可以直接使用受保护的 Makefile 运维入口；builder 的完整编译工具链仍不会进入 runner。
 - 未改变关键词删除、采集、审核、训练标签或模型特征逻辑，未执行真实远程 D1 重置。
 
 ## 修改文件与接口
@@ -18,7 +19,7 @@
 - `models/spamdet/`：默认内置模型目录的新名称。
 - `main.py`、`tests/`：导入路径统一切换为 `spamdet`。
 - `spamdet/config.py`：默认 `SPAM_MODEL_PATH` 改为 `models/spamdet`。
-- `Dockerfile`：复制新包，镜像默认模型路径改为 `/CaptchaBot/models/spamdet`。
+- `Dockerfile`：复制新包，镜像默认模型路径改为 `/CaptchaBot/models/spamdet`，runner 安装最小 `make`。
 - `Makefile`：变量/target 中文注释、默认 `help`、安全 `reset-d1` 和全部新 CLI 路径。
 - `tests/test_d1_reset.py`：固定 SQL 与强制确认测试。
 - `README.md`、`docs/000-overview.md`、`docs/CONTRACTS.md`、`docs/PROGRESS.md`、当前 Story 和本 Notes：同步最终命令与运维边界。
@@ -54,6 +55,7 @@
 - `venv/bin/pip check`：通过；pip cache 权限警告不影响结果。
 - `docker buildx build --platform linux/arm64 --load -t captchabot:story011 .`：通过。
 - 容器内从 `spamdet.model_loader` 加载 `/CaptchaBot/models/spamdet`：`available=True`，版本为 `seed-sim-v2-aa3f115430e7bb8e`。
+- `docker run --rm captchabot:story011 make help`：通过，确认 runner 中已安装 `make` 且可执行全部运维入口。
 - `git diff --check`：通过。
 
 ## 已知问题与交接

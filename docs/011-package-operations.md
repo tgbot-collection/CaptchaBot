@@ -12,6 +12,7 @@
 - Makefile 增加 `reset-d1`：必须同时满足 `CONFIRM_RESET_D1=YES` 且 `CONFIRM_D1_DATABASE_ID` 与环境中的 `D1_DATABASE_ID` 完全一致；确认后先删除 `samples` 表，再执行 `python -m spamdet.d1_migrate --apply` 重建。
 - `reset-d1` 任一步失败都必须以非零状态停止；不得吞掉失败或声称重建成功。本 Story 的自动化测试不得访问真实 D1，也不得实际执行远程重置。
 - Makefile 为每个变量和 target 增加简体中文注释，并提供 `make help`，明确 target 的用途、前置条件和是否属于日常必需操作。
+- Docker runner 安装最小的 `make`，确保 Makefile 运维入口可在实际运行容器内使用。
 - README 解释每个 Make target：哪些是开发/首次建库使用，哪些只在人工重训或发布时使用，哪些不是日常必需。
 - 所有现有测试、编译、本地 Migration 校验、模型确定性构建和 Docker 包路径验证通过。
 

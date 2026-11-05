@@ -220,6 +220,14 @@ make reset-d1 \
 `python -m spamdet.d1_migrate --apply`。如果删表或重建任一步失败，Make 会立即以非零状态停止。
 此操作不可恢复，Makefile 不会自动备份。
 
+正式 runner 镜像已安装最小的 `make`，因此也可以在 Compose 容器中执行。使用单引号让数据库
+ID 在容器内展开，避免依赖宿主机是否导出了同名变量：
+
+```shell
+docker compose exec captcha sh -lc \
+  'make reset-d1 CONFIRM_RESET_D1=YES CONFIRM_D1_DATABASE_ID="$D1_DATABASE_ID"'
+```
+
 D1 中的 pending/reviewed 样本默认不执行自动清理；项目维护者根据实际需要决定保留期限和
 人工删除操作。删除前应确认不会破坏审核、训练数据来源或审计需求。
 
