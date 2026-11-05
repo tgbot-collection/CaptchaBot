@@ -1,8 +1,8 @@
 kurigram==2.2.26
 captcha==0.7.1
-APScheduler==3.11.2
+APScheduler==3.11.3
 tgcrypto==1.2.5
-redis==7.4.0
-pillow==12.1.0
+redis==8.1.0
+pillow==13.0.0
 zhconv==1.4.3
 httpx==0.28.1
