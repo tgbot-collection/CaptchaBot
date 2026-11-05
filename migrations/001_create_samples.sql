@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS samples (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     schema_version INTEGER NOT NULL CHECK (schema_version >= 1),
-    source TEXT NOT NULL CHECK (source IN ('rule', 'manual')),
+    source TEXT NOT NULL CHECK (source IN ('rule', 'manual', 'group')),
     message_json TEXT NOT NULL CHECK (json_valid(message_json)),
     text TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('pending', 'reviewed')),

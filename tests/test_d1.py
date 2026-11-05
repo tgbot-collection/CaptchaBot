@@ -16,7 +16,7 @@ from spam_learning.d1 import (
     D1NotFoundError,
     ReviewOutcome,
 )
-from spam_learning.d1_migrate import GROUP_MIGRATION_PATH, MIGRATION_PATH
+from spam_learning.d1_migrate import MIGRATION_PATH
 from spam_learning.schemas import MessageSnapshot, ModelSuggestion, SpamSample
 
 
@@ -27,7 +27,6 @@ class SQLiteD1Transport:
         self.connection = sqlite3.connect(":memory:")
         self.connection.row_factory = sqlite3.Row
         self.connection.executescript(MIGRATION_PATH.read_text(encoding="utf-8"))
-        self.connection.executescript(GROUP_MIGRATION_PATH.read_text(encoding="utf-8"))
         self.requests: list[httpx.Request] = []
 
     def __call__(self, request: httpx.Request) -> httpx.Response:

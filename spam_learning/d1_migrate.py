@@ -12,14 +12,12 @@ from .d1 import D1Client
 
 
 MIGRATION_PATH = Path(__file__).resolve().parent.parent / "migrations" / "001_create_samples.sql"
-GROUP_MIGRATION_PATH = MIGRATION_PATH.parent / "002_group_samples.sql"
 
 
 def validate_migration() -> None:
     sql = MIGRATION_PATH.read_text(encoding="utf-8")
     with sqlite3.connect(":memory:") as connection:
         connection.executescript(sql)
-        connection.executescript(GROUP_MIGRATION_PATH.read_text(encoding="utf-8"))
 
 
 async def apply_migration() -> None:
@@ -27,7 +25,6 @@ async def apply_migration() -> None:
     config = SpamLearningConfig.from_env()
     async with D1Client.from_config(config) as client:
         await client.apply_migration(sql)
-        await client.apply_migration(GROUP_MIGRATION_PATH.read_text(encoding="utf-8"))
 
 
 def main() -> None:
