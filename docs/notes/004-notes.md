@@ -13,6 +13,7 @@
 - 新增只在私聊匹配的 `/dataset`，且运行时再校验唯一管理员 ID；只返回 total、pending、reviewed、spam、ham 聚合数量。
 - 显式从既有验证码 catch-all callback filter 排除 `sd:` 协议，避免 Spam 审核数据被当成验证码处理。
 - 通知发送成功后将私聊 `chat_id/message_id` 写入 D1 预留字段，并记录了 V1 通知失败后通过 `/dataset` 和 D1 Console 人工定位 pending 的方式。
+- 2026-11-05 修复线上审核通知编辑回归：`kurigram==2.2.26` 的 `Message.edit_text()` 不接受旧参数 `disable_web_page_preview`，改为使用 `LinkPreviewOptions(is_disabled=True)`；D1 审核原子更新、标签语义和 callback 协议均未改变。
 
 ## 新增或修改的文件
 - `spam_learning/review.py`：单管理员通知格式化、按钮、回调、重复审核和数据集统计。
@@ -24,6 +25,7 @@
 - `tests/test_review.py`：新增审核通知、权限、原子更新、重复回调、故障、统计和长度边界测试。
 - `tests/test_capture.py`、`tests/test_d1.py`：新增 pending 后通知顺序、通知失败、单管理员配置和通知引用持久化测试。
 - `README.md`、`docs/004-review.md`、`docs/CONTRACTS.md`、`docs/PROGRESS.md`、本文件：同步实际配置、接口、运维恢复方式和完成状态。
+- 当前包名重命名后的实际修复文件为 `spamdet/review.py`；`tests/test_review.py` 的消息编辑假对象改为与 Kurigram 真实签名一致，不再用任意 `**kwargs` 掩盖不兼容参数。
 
 ## 接口、Schema、配置与兼容性
 - `SPAM_ADMIN_ID=<positive integer>` 取代 `SPAM_ADMIN_IDS`；用户明确只会配置一名管理员，因此不保留旧环境变量兼容。功能开启时该值必填且必须为正整数。
@@ -42,6 +44,7 @@
 - `/dataset` 在 filter 层限定私聊，在 Handler 内再校验管理员 ID，不在群里暴露数据或统计细节。
 
 ## 验证记录
+- 2026-11-05 回归修复验证：`venv/bin/python -m unittest tests.test_review -v` 的 12 项审核测试和 `venv/bin/python -m unittest discover -v` 的 83 项完整测试全部通过；`venv/bin/python -m compileall -q main.py spamdet tests` 与 `git diff --check` 通过。额外通过 `inspect.signature(Message.edit_text)` 确认 `kurigram==2.2.26` 支持 `link_preview_options` 且不支持 `disable_web_page_preview`。
 - 本次补充验证：`venv/bin/python -m unittest tests.test_review -v` 的 12 项审核测试全部通过；`venv/bin/python -m unittest discover -q` 的 73 项完整测试全部通过；`compileall` 与 `git diff --check` 通过。覆盖点击 Spam/Ham 后编辑通知仍保持链接预览关闭。
 - `venv/bin/python -m unittest discover -v`：41 项测试全部通过，覆盖两个按钮、HTML 转义/长度、`unknown`、单管理员权限、及时 answer、首次/重复审核、D1 故障不发通知、pending 后通知顺序、已记录通知不重复发送、通知引用和聚合统计。
 - `venv/bin/python -m spam_learning.d1_migrate`：通过，无需 Cloudflare 凭证。
@@ -63,4 +66,4 @@
 - 任何后续推理结果都只能作为通知建议，不能触发删除、封禁或禁言。
 
 ## Git Commit / PR
-- 尚未提交。
+- 2026-11-05 Kurigram 审核通知编辑兼容性修复：尚未提交。

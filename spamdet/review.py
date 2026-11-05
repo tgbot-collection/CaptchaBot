@@ -130,7 +130,7 @@ class ReviewService:
             self._admin_id,
             render_pending_notification(sample_id, sample),
             parse_mode=enums.ParseMode.HTML,
-            disable_web_page_preview=True,
+            link_preview_options=types.LinkPreviewOptions(is_disabled=True),
             reply_markup=keyboard,
         )
         await self._store.set_review_message(sample_id, self._admin_id, int(sent.id))
@@ -180,7 +180,7 @@ class ReviewService:
             await callback_query.message.edit_text(
                 original + suffix,
                 parse_mode=enums.ParseMode.DISABLED,
-                disable_web_page_preview=True,
+                link_preview_options=types.LinkPreviewOptions(is_disabled=True),
                 reply_markup=None,
             )
         except Exception as exc:

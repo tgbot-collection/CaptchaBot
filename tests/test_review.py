@@ -82,8 +82,27 @@ class FakeMessage:
         self.edits = []
         self.replies = []
 
-    async def edit_text(self, text, **kwargs):
-        self.edits.append((text, kwargs))
+    async def edit_text(
+        self,
+        text=None,
+        parse_mode=None,
+        entities=None,
+        link_preview_options=None,
+        reply_markup=None,
+        rich_message=None,
+    ):
+        self.edits.append(
+            (
+                text,
+                {
+                    "parse_mode": parse_mode,
+                    "entities": entities,
+                    "link_preview_options": link_preview_options,
+                    "reply_markup": reply_markup,
+                    "rich_message": rich_message,
+                },
+            )
+        )
 
     async def reply_text(self, text, **kwargs):
         self.replies.append((text, kwargs))
@@ -128,6 +147,7 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(buttons), 1)
         self.assertEqual([button.text for button in buttons[0]], ["✅ Spam", "❌ Not Spam"])
         self.assertEqual([button.callback_data for button in buttons[0]], ["sd:7:s", "sd:7:h"])
+        self.assertTrue(kwargs["link_preview_options"].is_disabled)
         self.assertEqual(store.review_messages, [(7, ADMIN_ID, 88)])
 
     async def test_unknown_is_not_rendered_as_ham(self) -> None:
@@ -199,7 +219,7 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(store.review_calls, [(7, "ham", ADMIN_ID)])
         self.assertEqual(callback.answers[0][0], "正在保存审核结果…")
         self.assertIn("审核结果：Not Spam", callback.message.edits[0][0])
-        self.assertTrue(callback.message.edits[0][1]["disable_web_page_preview"])
+        self.assertTrue(callback.message.edits[0][1]["link_preview_options"].is_disabled)
         self.assertIsNone(callback.message.edits[0][1]["reply_markup"])
 
     async def test_unauthorized_callback_never_touches_store(self) -> None:
