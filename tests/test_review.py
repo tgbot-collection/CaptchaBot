@@ -198,6 +198,7 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(store.review_calls, [(7, "ham", ADMIN_ID)])
         self.assertEqual(callback.answers[0][0], "正在保存审核结果…")
         self.assertIn("审核结果：Not Spam", callback.message.edits[0][0])
+        self.assertTrue(callback.message.edits[0][1]["disable_web_page_preview"])
         self.assertIsNone(callback.message.edits[0][1]["reply_markup"])
 
     async def test_unauthorized_callback_never_touches_store(self) -> None:

@@ -180,6 +180,7 @@ class ReviewService:
             await callback_query.message.edit_text(
                 original + suffix,
                 parse_mode=enums.ParseMode.DISABLED,
+                disable_web_page_preview=True,
                 reply_markup=None,
             )
         except Exception as exc:
