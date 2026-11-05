@@ -29,6 +29,7 @@
 9. `009-group-recording.md`：按群选择普通消息采集并人工审核。
 10. `010-profile-features.md`：将 Bio 和显示名称作为隔离特征通道接入训练与推理。
 11. `011-package-operations.md`：缩短 Python 包名并整理带保护的 D1/模型 Make 运维入口。
+12. `012-manual-label.md`：增加原子批量人工标注 D1 样本的 Make 运维入口。
 
 ## V1 明确不做
 AI 自动删除/封禁、头像识别、对所有未命中关键词消息的 Shadow Mode、在线自动学习、定时重训、Cloudflare Worker 网关、外部 LLM API。

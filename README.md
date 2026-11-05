@@ -177,11 +177,29 @@ Python CLI，避免 Make 变量隐式改变发布语义。
 | `export-spam-dataset` | 从 D1 导出 reviewed 数据并合并 `spam.txt` | 准备人工重训时的第一步；需要 D1 凭证，输出含敏感原文 |
 | `build-spam-candidate` | 从本地 JSONL 构建未批准候选 | 人工重训第二步；不会批准或部署 |
 | `approve-spam-candidate` | 将审查后的候选复制为不可覆盖 release | 人工重训第三步；需要 `CANDIDATE` 和 `APPROVED_BY`，仍不会部署 |
+| `spam` | 将一个或多个 D1 样本人工标注为 Spam | 人工确认样本后使用；需要 D1 凭证、`SPAM_ADMIN_ID` 和 `id=1,2,3` |
+| `ham` | 将一个或多个 D1 样本人工标注为 Ham | 人工确认样本后使用；需要 D1 凭证、`SPAM_ADMIN_ID` 和 `id=1,2,3` |
 | `reset-d1` | 永久删除并重建 D1 `samples` 表 | 仅限允许丢弃全部样本的开发阶段；正常运行、重训和发布都不需要 |
 
 通常你只需要直接启动 Bot。只有修改 `spam.txt` 才手工运行 `train-spam-model`；只有准备使用
 人工标签重训时才按顺序执行 export、build、approve。`reset-d1` 不是维护命令，而是当前可丢弃
 开发数据时的重建工具。
+
+人工核对样本后可以批量标注；两条命令都会把 `status`、`label`、`reviewed_at`、
+`reviewed_by` 以及 `message_json` 内的状态同步正确：
+
+```shell
+export D1_ACCOUNT_ID=...
+export D1_DATABASE_ID=...
+export D1_API_TOKEN=...
+export SPAM_ADMIN_ID=123456
+make ham id=1,2,3,4,5
+make spam id=6,7
+```
+
+重复 ID 会去重。已 reviewed 的样本可用该入口纠正标签，并以当前时间和 `SPAM_ADMIN_ID`
+记录本次操作；如果批次中任一 ID 不存在，整批不会更新。标签必须来自人工确认，不能根据规则
+命中或模型建议直接批量标注。
 
 ## D1 Migration
 

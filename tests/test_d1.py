@@ -146,6 +146,37 @@ class D1ClientTests(unittest.IsolatedAsyncioTestCase):
         record = await self.client.get(sample_id)
         self.assertEqual(record.label, "spam")
         self.assertEqual(record.reviewed_by, 12345)
+        self.assertEqual(record.sample["status"], "reviewed")
+        self.assertEqual(record.sample["label"], "spam")
+
+    async def test_batch_label_updates_all_review_fields_and_can_correct_label(self) -> None:
+        first_id = await self.client.create_pending(make_sample(message_id=1))
+        second_id = await self.client.create_pending(make_sample(message_id=2))
+        await self.client.review(second_id, "spam", 111)
+
+        changed = await self.client.label_samples([first_id, second_id, first_id], "ham", 222)
+
+        self.assertEqual(changed, [first_id, second_id])
+        for sample_id in changed:
+            record = await self.client.get(sample_id)
+            self.assertEqual(record.status, "reviewed")
+            self.assertEqual(record.label, "ham")
+            self.assertIsNotNone(record.reviewed_at)
+            self.assertEqual(record.reviewed_by, 222)
+            self.assertEqual(record.sample["status"], "reviewed")
+            self.assertEqual(record.sample["label"], "ham")
+
+    async def test_batch_label_is_all_or_nothing_when_an_id_is_missing(self) -> None:
+        sample_id = await self.client.create_pending(make_sample())
+
+        with self.assertRaisesRegex(D1NotFoundError, "999"):
+            await self.client.label_samples([sample_id, 999], "ham", 222)
+
+        record = await self.client.get(sample_id)
+        self.assertEqual(record.status, "pending")
+        self.assertIsNone(record.label)
+        self.assertIsNone(record.reviewed_at)
+        self.assertIsNone(record.reviewed_by)
 
     async def test_review_message_reference_is_stored(self) -> None:
         sample_id = await self.client.create_pending(make_sample())

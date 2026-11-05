@@ -221,11 +221,15 @@ class D1Client:
         result = await self._query(
             """
             UPDATE samples
-            SET status = 'reviewed', label = ?, reviewed_at = CURRENT_TIMESTAMP, reviewed_by = ?
+            SET status = 'reviewed',
+                label = ?,
+                message_json = json_set(message_json, '$.status', 'reviewed', '$.label', ?),
+                reviewed_at = CURRENT_TIMESTAMP,
+                reviewed_by = ?
             WHERE id = ? AND status = 'pending'
             RETURNING id
             """,
-            (label, str(admin_id), str(sample_id)),
+            (label, label, str(admin_id), str(sample_id)),
         )
         if _result_rows(result):
             return ReviewOutcome.CHANGED
@@ -234,6 +238,58 @@ class D1Client:
         if current.status == "reviewed":
             return ReviewOutcome.ALREADY_REVIEWED
         raise D1APIError("样本审核状态异常，未执行覆盖")
+
+    async def label_samples(self, sample_ids: Sequence[int], label: str, admin_id: int) -> list[int]:
+        """由管理员原子批量标注或纠正样本，并同步统一样本 JSON。"""
+
+        if isinstance(sample_ids, (str, bytes)):
+            raise ValueError("sample_ids 必须是正整数序列")
+        normalized_ids = list(dict.fromkeys(_positive_id(value, "sample_id") for value in sample_ids))
+        if not normalized_ids:
+            raise ValueError("sample_ids 不能为空")
+        admin_id = _positive_id(admin_id, "admin_id")
+        if label not in _LABELS:
+            raise ValueError("label 必须是 spam 或 ham")
+
+        ids_json = json.dumps(normalized_ids, separators=(",", ":"))
+        result = await self._query(
+            """
+            WITH requested(id) AS (
+                SELECT CAST(value AS INTEGER) FROM json_each(?)
+            )
+            UPDATE samples
+            SET status = 'reviewed',
+                label = ?,
+                message_json = json_set(message_json, '$.status', 'reviewed', '$.label', ?),
+                reviewed_at = CURRENT_TIMESTAMP,
+                reviewed_by = ?
+            WHERE id IN (SELECT id FROM requested)
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM requested
+                  LEFT JOIN samples AS existing ON existing.id = requested.id
+                  WHERE existing.id IS NULL
+              )
+            RETURNING id
+            """,
+            (ids_json, label, label, str(admin_id)),
+        )
+        changed_ids = sorted(_positive_id(row.get("id"), "已标注样本") for row in _result_rows(result))
+        if len(changed_ids) == len(normalized_ids):
+            return changed_ids
+        if changed_ids:
+            raise D1APIError("D1 批量标注返回了不完整结果")
+
+        existing = await self._query(
+            "SELECT id FROM samples WHERE id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))",
+            (ids_json,),
+        )
+        existing_ids = {_positive_id(row.get("id"), "已有样本") for row in _result_rows(existing)}
+        missing_ids = [sample_id for sample_id in normalized_ids if sample_id not in existing_ids]
+        if missing_ids:
+            missing_text = ",".join(str(sample_id) for sample_id in missing_ids)
+            raise D1NotFoundError(f"样本不存在：{missing_text}；整批未更新")
+        raise D1APIError("D1 批量标注未更新任何样本")
 
     async def set_review_message(self, sample_id: int, chat_id: int, message_id: int) -> None:
         """记录已成功发送的单管理员审核通知位置。"""

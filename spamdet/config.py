@@ -190,3 +190,10 @@ class SpamLearningConfig:
         assert self.d1_database_id is not None
         assert self.d1_api_token is not None
         return self.d1_account_id, self.d1_database_id, self.d1_api_token
+
+    def require_admin_id(self) -> int:
+        """返回人工操作管理员 ID；运维工具可在主功能关闭时独立使用。"""
+
+        if self.admin_id is None:
+            raise ConfigError("D1 人工标注缺少配置：SPAM_ADMIN_ID")
+        return self.admin_id

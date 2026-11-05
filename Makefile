@@ -12,7 +12,7 @@ SPAM_CANDIDATES ?= models/candidates
 SPAM_RELEASES ?= models/releases
 
 .DEFAULT_GOAL := help
-.PHONY: help train-spam-model export-spam-dataset build-spam-candidate approve-spam-candidate reset-d1
+.PHONY: help train-spam-model export-spam-dataset build-spam-candidate approve-spam-candidate spam ham reset-d1
 
 # 显示可用 target；这是默认 target，不修改任何文件或远程状态。
 help:
@@ -20,6 +20,8 @@ help:
 	@echo "make export-spam-dataset    从 D1 导出 reviewed 数据并合并种子"
 	@echo "make build-spam-candidate   从本地数据集构建未批准候选模型"
 	@echo "make approve-spam-candidate 人工批准候选，需要 CANDIDATE 和 APPROVED_BY"
+	@echo "make spam id=1,2,3       将 D1 样本批量人工标注为 Spam"
+	@echo "make ham id=1,2,3        将 D1 样本批量人工标注为 Ham"
 	@echo "make reset-d1               永久删除并重建 D1 samples 表，需要双重确认"
 
 # 仅在 spam.txt 或模型代码变化后使用；日常运行 Bot 不需要执行。
@@ -40,8 +42,20 @@ approve-spam-candidate:
 	@test -n "$(APPROVED_BY)" || (echo "必须提供 APPROVED_BY=批准人"; exit 2)
 	$(PYTHON) -m spamdet.retrain approve --candidate "$(CANDIDATE)" --releases "$(SPAM_RELEASES)" --approved-by "$(APPROVED_BY)"
 
+# 人工确认后批量标注 Spam；需要 D1 凭证、SPAM_ADMIN_ID 和 id=逗号分隔的正整数。
+spam: export SPAM_SAMPLE_IDS := $(id)
+spam:
+	@test -n "$$SPAM_SAMPLE_IDS" || (echo "必须提供 id=1,2,3"; exit 2)
+	$(PYTHON) -m spamdet.d1_label --label spam --ids "$$SPAM_SAMPLE_IDS"
+
+# 人工确认后批量标注 Ham；会同步 status、label、reviewed_at、reviewed_by 和样本 JSON。
+ham: export SPAM_SAMPLE_IDS := $(id)
+ham:
+	@test -n "$$SPAM_SAMPLE_IDS" || (echo "必须提供 id=1,2,3"; exit 2)
+	$(PYTHON) -m spamdet.d1_label --label ham --ids "$$SPAM_SAMPLE_IDS"
+
 # 仅限允许丢弃全部样本的开发阶段。先删表，成功后立即执行最终 Migration 重建。
-# 示例：make reset-d1 CONFIRM_RESET_D1=YES CONFIRM_D1_DATABASE_ID="$$D1_DATABASE_ID"
+# 示例：make reset-d1 CONFIRM_RESET_D1=YES
 reset-d1:
 	@test "$(CONFIRM_RESET_D1)" = "YES" || (echo "拒绝重置：必须提供 CONFIRM_RESET_D1=YES"; exit 2)
 	$(PYTHON) -m spamdet.d1_reset --confirm-reset

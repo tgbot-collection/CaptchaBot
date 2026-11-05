@@ -34,6 +34,7 @@ Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 - Story 009 增加 `SPAM_CAPTURE_GROUPS`：空值关闭普通群消息采集；`all` 允许全部群，负数群 ID 逗号列表仅允许指定群。普通群消息为 `source=group/status=pending/label=null`，仅通过管理员 `/review` 领取；重训仍只导出 reviewed。由于 D1 尚未部署，最终 `001_create_samples.sql` 直接支持 `rule/manual/group`，不保留额外升级脚本。配置名与既有 `SPAM_CAPTURE_*` 保持一致。
 - Story 010 将样本升级为 `schema_version=2`，`bio_state` 仅允许 `present/empty/unavailable/not_requested`。普通群消息复用 Handler 已取得的 Bio，不新增请求；规则提前命中的 Bio 仍在删除后的有界 worker 中补充。项目尚未正式积累数据，因此直接重建 D1 和模型，不提供旧库升级、回填或旧模型兼容层。
 - Story 011 将 Python 包统一重命名为 `spamdet`，默认模型目录改为 `models/spamdet`，不保留旧包兼容层。开发期 `make reset-d1` 只在双重确认数据库 ID 后删除 `samples` 表并执行最终 Migration；它不删除 D1 database 或其他表。
+- Story 012 增加 `make spam id=1,2,3` 和 `make ham id=1,2,3`。两者只接受人工确认的标签，使用 `SPAM_ADMIN_ID` 作为 `reviewed_by`，并原子批量同步独立列与 `message_json` 中的 `status/label`。任一 ID 不存在时整批不更新；运维入口可纠正 reviewed 标签，但 Telegram callback 仍不覆盖首次审核结果。
 
 ## D1 存储约定
 Story 002 已确定 `samples` 字段：`id`（整数主键）、`schema_version`、`source`、`message_json`、`text`、`status`（`pending`/`reviewed`）、`label`（NULL/`spam`/`ham`）、`model_version`、`prediction`、`prediction_score`、`created_at`、`reviewed_at`、`reviewed_by`、`review_chat_id`、`review_message_id`、`dedupe_key`。命中规则和可选 Bio 存在完整样本 JSON `message_json` 中。数据库通过 CHECK 约束强制 pending/NULL 与 reviewed/人工标签配对，并为状态/标签、reviewed 导出和唯一去重键建立索引。
@@ -48,6 +49,7 @@ Story 002 的公共存储接口：
 - `D1Client.get(id) -> StoredSample`：`message_json` 已解析为 `StoredSample.sample` 字典。
 - `D1Client.stats() -> SampleStats`：提供 total、pending、reviewed、spam、ham 数量。
 - `D1Client.export_reviewed(page_size=200) -> list[StoredSample]`：使用 `id` keyset 分页并按 `id ASC` 稳定排序。
+- `D1Client.label_samples(sample_ids, label, admin_id) -> list[int]`：人工运维专用的原子批量标注/纠正接口；更新 `status/label/reviewed_at/reviewed_by` 和统一样本 JSON，返回已更新 ID。任一 ID 不存在时抛出 `D1NotFoundError` 且整批不变。
 
 D1 Query REST 客户端使用参数化 SQL、5 秒默认超时、最多 2 次默认重试和默认 4 并发上限。只重试网络/超时、429 和有限的 5xx；同时校验 Cloudflare 顶层 `success` 与每条 SQL 的 `result[].success`。异常文本不包含 Token 或 SQL 参数。
 
