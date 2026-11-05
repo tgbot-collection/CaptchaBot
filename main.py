@@ -61,7 +61,7 @@ def generate_char():
 @app.on_message(filters.command(["start", "help"]) &  filters.private)
 async def start_handler(client: "Client", message: "types.Message"):
     logging.info("Welcome to Captcha Bot")
-    await message.reply_text("Hello! Add me to a group and make me admin!", quote=True)
+    await message.reply_text("Hello! Add me to a group and make me admin!")
 
 
 @app.on_message(filters.command("dataset") & filters.private)
