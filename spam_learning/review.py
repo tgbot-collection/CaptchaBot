@@ -28,6 +28,8 @@ class ReviewStore(Protocol):
 
     async def stats(self) -> SampleStats: ...
 
+    async def next_group_pending(self) -> StoredSample | None: ...
+
 
 def _safe(value: str | None, limit: int, *, empty: str = "无") -> str:
     """按 HTML 转义后的长度安全截断，不切断转义实体。"""
@@ -80,6 +82,7 @@ def render_pending_notification(sample_id: int, sample: SpamSample) -> str:
             f"<b>昵称</b>：{_safe(full_name, _FIELD_LIMIT)}",
             f"<b>用户名</b>：{_safe(username, _FIELD_LIMIT)}",
             f"<b>Bio</b>：{_safe(sample.user.bio, _BIO_LIMIT)}",
+            f"<b>来源</b>：{'普通群消息' if sample.source == 'group' else '规则命中'}",
             f"<b>命中规则</b>：{_safe(sample.matched_rule, _FIELD_LIMIT)}",
             f"<b>模型建议</b>：{_model_text(sample.model)}",
         )
@@ -131,6 +134,14 @@ class ReviewService:
             reply_markup=keyboard,
         )
         await self._store.set_review_message(sample_id, self._admin_id, int(sent.id))
+
+    async def notify_next_group_pending(self) -> bool:
+        stored = await self._store.next_group_pending()
+        if stored is None:
+            return False
+        from .schemas import sample_from_stored_dict
+        await self.notify_pending(stored.id, sample_from_stored_dict(stored.sample))
+        return True
 
     async def handle_callback(self, callback_query: Any) -> None:
         match = _CALLBACK_RE.fullmatch(str(getattr(callback_query, "data", "")))

@@ -50,6 +50,10 @@ class FakeStore:
         self.review_message_id = None
         self.error: Exception | None = None
         self.review_messages = []
+        self.group_pending = None
+
+    async def next_group_pending(self):
+        return self.group_pending
 
     async def set_review_message(self, sample_id: int, chat_id: int, message_id: int) -> None:
         self.review_messages.append((sample_id, chat_id, message_id))
@@ -96,6 +100,18 @@ class FakeCallback:
 
 
 class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_admin_pulls_group_sample_for_manual_review(self) -> None:
+        telegram = FakeTelegram()
+        store = FakeStore()
+        sample = make_sample()
+        from dataclasses import replace
+        sample = replace(sample, source="group", matched_rule=None)
+        store.group_pending = SimpleNamespace(id=7, sample=sample.to_dict())
+        service = ReviewService(telegram, store, admin_id=ADMIN_ID)
+        self.assertTrue(await service.notify_next_group_pending())
+        self.assertIn("普通群消息", telegram.sent[0][0][1])
+        self.assertEqual(store.review_messages, [(7, ADMIN_ID, 88)])
+
     async def test_notification_is_escaped_and_has_exactly_two_buttons(self) -> None:
         telegram = FakeTelegram()
         store = FakeStore()

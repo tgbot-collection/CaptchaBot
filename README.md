@@ -38,6 +38,9 @@ Spam 学习功能已接入现有规则删除路径，功能默认关闭：
 * `SPAM_BIO_CACHE_TTL_SECONDS`：Bio 缓存 TTL，默认 `300.0`
 * `SPAM_BIO_CACHE_SIZE`：Bio 缓存最大条目数，默认 `1000`
 * `SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS`：关停排空超时，默认 `5.0`
+* `SPAM_CAPTURE_GROUPS`：默认不记录普通群消息；`all` 记录所有可见群，或用 `-100123,-100456` 只记录指定群。
+
+普通群消息只采集有文本或 caption、未命中规则的消息；D1 保存为未标注的 `group/pending`，不会自动当作 Ham。管理员在私聊发送 `/review`，每次领取一条并用 Spam/Not Spam 按钮审核。普通消息不主动推送通知，也不查询 Bio。启用前执行 `python -m spam_learning.d1_migrate --apply`，使现有 D1 表允许 `group` 来源；该迁移保留旧记录。
 
 启用 `SPAM_LEARNING_ENABLED` 时，单个管理员 ID 和三项 D1 配置必须存在。
 所有密钥只能通过环境变量或 Secret 注入。

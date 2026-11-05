@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from types import SimpleNamespace
 import unittest
+from dataclasses import replace
 
 from spam_learning.capture import CaptureService
 from spam_learning.schemas import MessageSnapshot, SpamSample, UserSnapshot
@@ -97,6 +98,19 @@ class RecordingInference:
 
 
 class CaptureServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_group_sample_writes_without_bio_lookup_or_push(self) -> None:
+        telegram, store, notifier = FakeTelegram(), RecordingStore(), RecordingNotifier()
+        service = CaptureService(telegram, store, notifier)
+        service.start()
+        try:
+            self.assertTrue(service.submit(replace(make_sample(7), source="group", matched_rule=None)))
+            await service.wait_until_idle()
+        finally:
+            await service.aclose()
+        self.assertEqual(telegram.calls, 0)
+        self.assertEqual(len(store.samples), 1)
+        self.assertEqual(notifier.calls, [])
+
     async def test_prediction_is_persisted_and_sent_after_bio_enrichment(self) -> None:
         telegram = FakeTelegram(bio="简介")
         store = RecordingStore()

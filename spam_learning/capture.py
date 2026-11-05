@@ -80,8 +80,8 @@ class CaptureService:
     def submit(self, sample: SpamSample) -> bool:
         """非阻塞提交快照；队列已满或服务停止时返回 False。"""
 
-        if sample.source != "rule" or sample.status != "pending" or sample.label is not None:
-            raise ValueError("只能采集未标注的 rule/pending 样本")
+        if sample.source not in {"rule", "group"} or sample.status != "pending" or sample.label is not None:
+            raise ValueError("只能采集未标注的 rule/group pending 样本")
         if not self._accepting:
             return False
         try:
@@ -115,10 +115,10 @@ class CaptureService:
         while True:
             sample = await self._queue.get()
             try:
-                enriched = await self._with_bio(sample)
+                enriched = await self._with_bio(sample) if sample.source == "rule" else sample
                 enriched = await self._with_prediction(enriched)
                 sample_id = await self._store.create_pending(enriched)
-                if self._notifier is not None:
+                if self._notifier is not None and sample.source == "rule":
                     try:
                         await self._notifier.notify_pending(sample_id, enriched)
                     except Exception as exc:

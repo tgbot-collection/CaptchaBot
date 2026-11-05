@@ -9,7 +9,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-_SOURCES = frozenset({"rule", "manual"})
+_SOURCES = frozenset({"rule", "manual", "group"})
 _STATUSES = frozenset({"pending", "reviewed"})
 _LABELS = frozenset({"spam", "ham"})
 
@@ -190,8 +190,9 @@ def _snapshot_entities(entities: Any) -> tuple[EntitySnapshot, ...]:
 def sample_from_message(
     message: Any,
     *,
-    matched_rule: str,
+    matched_rule: str | None = None,
     bio: str | None = None,
+    source: str = "rule",
 ) -> SpamSample:
     """同步提取 Pyrogram ``Message`` 的必要字段，不执行任何 API 请求。"""
 
@@ -203,7 +204,7 @@ def sample_from_message(
     entity_source = getattr(message, "entities", None) if text is not None else getattr(message, "caption_entities", None)
 
     return SpamSample(
-        source="rule",
+        source=source,
         message=MessageSnapshot(
             chat_id=getattr(chat, "id", None),
             message_id=getattr(message, "id", None),
@@ -226,6 +227,28 @@ def sample_from_message(
             username=getattr(via_bot, "username", None),
         ),
         matched_rule=matched_rule,
+    )
+
+
+def sample_from_stored_dict(value: dict[str, Any]) -> SpamSample:
+    """只重建审核展示所需的已存快照，不伪造 Pyrogram Message。"""
+    message = value["message"]
+    user = value["user"]
+    model = value.get("model")
+    return SpamSample(
+        source=value["source"],
+        message=MessageSnapshot(
+            chat_id=message.get("chat_id"), message_id=message.get("message_id"),
+            date=message.get("date"), text=message.get("text", ""),
+            caption=message.get("caption"), media_type=message.get("media_type"),
+        ),
+        user=UserSnapshot(
+            id=user.get("id"), username=user.get("username"),
+            first_name=user.get("first_name"), last_name=user.get("last_name"),
+            is_premium=user.get("is_premium"), bio=user.get("bio"),
+        ),
+        matched_rule=value.get("matched_rule"),
+        model=ModelSuggestion(**model) if isinstance(model, dict) else None,
     )
 
 

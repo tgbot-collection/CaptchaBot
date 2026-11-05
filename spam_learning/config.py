@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Mapping
 import os
+import re
 
 
 class ConfigError(ValueError):
@@ -44,6 +45,18 @@ def _optional_value(value: str | None) -> str | None:
         return None
     normalized = value.strip()
     return normalized or None
+
+
+def _parse_record_groups(value: str | None) -> frozenset[int] | None:
+    """None 表示关闭，空集合表示显式选择所有群。"""
+    if value is None or not value.strip():
+        return None
+    if value.strip().lower() == "all":
+        return frozenset()
+    parts = value.split(",")
+    if not all(re.fullmatch(r"-[1-9]\d*", part.strip()) for part in parts):
+        raise ConfigError("SPAM_CAPTURE_GROUPS 必须是 all 或逗号分隔的负数群组 ID")
+    return frozenset(int(part.strip()) for part in parts)
 
 
 def _parse_positive_int(name: str, value: str | None, *, default: int) -> int:
@@ -91,6 +104,12 @@ class SpamLearningConfig:
     bio_cache_ttl_seconds: float = 300.0
     bio_cache_size: int = 1000
     capture_shutdown_timeout_seconds: float = 5.0
+    record_groups: frozenset[int] | None = None
+
+    def records_group(self, chat_id: int | None) -> bool:
+        return self.enabled and chat_id is not None and chat_id < 0 and (
+            self.record_groups is not None and (not self.record_groups or chat_id in self.record_groups)
+        )
 
     @classmethod
     def from_env(cls, environ: Mapping[str, str] | None = None) -> "SpamLearningConfig":
@@ -111,6 +130,7 @@ class SpamLearningConfig:
             d1_database_id=_optional_value(values.get("D1_DATABASE_ID")),
             d1_api_token=_optional_value(values.get("D1_API_TOKEN")),
             model_path=Path(model_path_value),
+            record_groups=_parse_record_groups(values.get("SPAM_CAPTURE_GROUPS")),
             capture_queue_size=_parse_positive_int(
                 "SPAM_CAPTURE_QUEUE_SIZE", values.get("SPAM_CAPTURE_QUEUE_SIZE"), default=100
             ),
