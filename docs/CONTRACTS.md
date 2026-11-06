@@ -35,6 +35,7 @@ Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 - Story 010 将样本升级为 `schema_version=2`，`bio_state` 仅允许 `present/empty/unavailable/not_requested`。普通群消息复用 Handler 已取得的 Bio，不新增请求；规则提前命中的 Bio 仍在删除后的有界 worker 中补充。项目尚未正式积累数据，因此直接重建 D1 和模型，不提供旧库升级、回填或旧模型兼容层。
 - Story 011 将 Python 包统一重命名为 `spamdet`，默认模型目录改为 `models/spamdet`，不保留旧包兼容层。开发期 `make reset-d1` 只在双重确认数据库 ID 后删除 `samples` 表并执行最终 Migration；它不删除 D1 database 或其他表。
 - Story 012 增加 `make spam id=1,2,3` 和 `make ham id=1,2,3`。两者只接受人工确认的标签，使用 `SPAM_ADMIN_ID` 作为 `reviewed_by`，并原子批量同步独立列与 `message_json` 中的 `status/label`。任一 ID 不存在时整批不更新；运维入口可纠正 reviewed 标签，但 Telegram callback 仍不覆盖首次审核结果。
+- Story 013 不修改统一样本 Schema。`ReviewService.notify_pending()` 在 D1 pending 已成功写入后，使用已有 `message.chat_id` 查询群资料：公开群名链接到 `https://t.me/<username>`，私有超级群名链接到基于 `chat_id/message_id` 生成的 `https://t.me/c/<channel>/<message_id>`。查询或链接生成失败时仍发送无链接的审核通知；该查询不得进入规则删除关键路径，也不得记录群标识符或内容。
 
 ## D1 存储约定
 Story 002 已确定 `samples` 字段：`id`（整数主键）、`schema_version`、`source`、`message_json`、`text`、`status`（`pending`/`reviewed`）、`label`（NULL/`spam`/`ham`）、`model_version`、`prediction`、`prediction_score`、`created_at`、`reviewed_at`、`reviewed_by`、`review_chat_id`、`review_message_id`、`dedupe_key`。命中规则和可选 Bio 存在完整样本 JSON `message_json` 中。数据库通过 CHECK 约束强制 pending/NULL 与 reviewed/人工标签配对，并为状态/标签、reviewed 导出和唯一去重键建立索引。
@@ -129,6 +130,7 @@ Story 007 的离线重训和模型发布约定：
 - D1 写入失败：记录脱敏错误，不发送指向不存在记录的审核按钮；现有规则删除不受影响。
 - Bio 查询失败：存 `bio=null/bio_state=unavailable`，不能拖慢删除。
 - D1 写入成功但 Telegram 通知失败：记录仍是 pending；以后可人工补偿。
+- 审核通知读取群资料失败：显示无链接的“未知群组”并继续发送通知；不能回滚或丢弃已写入的 pending。
 - 模型失败：记为 `unavailable`，继续采集和审核。
 - 回调失败：按钮保持可重试，不能提前显示成功。
 

@@ -34,8 +34,17 @@ def make_sample(*, model: ModelSuggestion | None = None) -> SpamSample:
 
 
 class FakeTelegram:
-    def __init__(self) -> None:
+    def __init__(self, *, chat=None, chat_error: Exception | None = None) -> None:
         self.sent = []
+        self.chat = chat or SimpleNamespace(title="测试群组", username="test_group")
+        self.chat_error = chat_error
+        self.chat_ids = []
+
+    async def get_chat(self, chat_id):
+        self.chat_ids.append(chat_id)
+        if self.chat_error is not None:
+            raise self.chat_error
+        return self.chat
 
     async def send_message(self, *args, **kwargs):
         self.sent.append((args, kwargs))
@@ -143,12 +152,35 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
         args, kwargs = telegram.sent[0]
         self.assertEqual(args[0], ADMIN_ID)
         self.assertIn("&lt;b&gt;原始&amp;消息&lt;/b&gt;", args[1])
+        self.assertIn('<b>群组</b>：<a href="https://t.me/test_group">测试群组</a>', args[1])
+        self.assertEqual(telegram.chat_ids, [-100123])
         buttons = kwargs["reply_markup"].inline_keyboard
         self.assertEqual(len(buttons), 1)
         self.assertEqual([button.text for button in buttons[0]], ["✅ Spam", "❌ Not Spam"])
         self.assertEqual([button.callback_data for button in buttons[0]], ["sd:7:s", "sd:7:h"])
         self.assertTrue(kwargs["link_preview_options"].is_disabled)
         self.assertEqual(store.review_messages, [(7, ADMIN_ID, 88)])
+
+    async def test_private_supergroup_name_links_to_original_group(self) -> None:
+        telegram = FakeTelegram(chat=SimpleNamespace(title="私有 & 群", username=None))
+        service = ReviewService(telegram, FakeStore(), admin_id=ADMIN_ID)
+
+        await service.notify_pending(7, make_sample())
+
+        rendered = telegram.sent[0][0][1]
+        self.assertIn(
+            '<b>群组</b>：<a href="https://t.me/c/123/42">私有 &amp; 群</a>',
+            rendered,
+        )
+
+    async def test_group_lookup_failure_does_not_block_notification(self) -> None:
+        telegram = FakeTelegram(chat_error=RuntimeError("failed"))
+        service = ReviewService(telegram, FakeStore(), admin_id=ADMIN_ID)
+
+        await service.notify_pending(7, make_sample())
+
+        self.assertEqual(len(telegram.sent), 1)
+        self.assertIn("<b>群组</b>：未知群组", telegram.sent[0][0][1])
 
     async def test_unknown_is_not_rendered_as_ham(self) -> None:
         model = ModelSuggestion(version="v0", kind="similarity", decision="unknown", score=0.1)

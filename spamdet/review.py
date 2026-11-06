@@ -6,6 +6,7 @@ import html
 import logging
 import re
 from typing import Any, Protocol
+from urllib.parse import quote
 
 from pyrogram import enums, types
 
@@ -68,7 +69,35 @@ def _model_text(model: ModelSuggestion | None) -> str:
     )
 
 
-def render_pending_notification(sample_id: int, sample: SpamSample) -> str:
+def _group_link(sample: SpamSample, chat: Any) -> str | None:
+    """优先生成公开群链接，私有超级群则链接到原消息所在群。"""
+
+    username = str(getattr(chat, "username", "") or "").lstrip("@")
+    if username:
+        return f"https://t.me/{quote(username, safe='_')}"
+
+    chat_id = sample.message.chat_id
+    message_id = sample.message.message_id
+    chat_id_text = str(chat_id) if chat_id is not None else ""
+    if chat_id_text.startswith("-100") and chat_id_text[4:].isdigit() and message_id and message_id > 0:
+        return f"https://t.me/c/{chat_id_text[4:]}/{message_id}"
+    return None
+
+
+def _group_text(title: str | None, link: str | None) -> str:
+    safe_title = _safe(title, _FIELD_LIMIT, empty="未知群组")
+    if link is None:
+        return safe_title
+    return f'<a href="{html.escape(link, quote=True)}">{safe_title}</a>'
+
+
+def render_pending_notification(
+    sample_id: int,
+    sample: SpamSample,
+    *,
+    group_title: str | None = None,
+    group_link: str | None = None,
+) -> str:
     """生成只用于管理员私聊的 HTML 文本。"""
 
     content = sample.message.text or sample.message.caption
@@ -82,6 +111,7 @@ def render_pending_notification(sample_id: int, sample: SpamSample) -> str:
             f"<b>昵称</b>：{_safe(full_name, _FIELD_LIMIT)}",
             f"<b>用户名</b>：{_safe(username, _FIELD_LIMIT)}",
             f"<b>Bio</b>：{_safe(sample.user.bio, _BIO_LIMIT)}",
+            f"<b>群组</b>：{_group_text(group_title, group_link)}",
             f"<b>来源</b>：{'普通群消息' if sample.source == 'group' else '规则命中'}",
             f"<b>命中规则</b>：{_safe(sample.matched_rule, _FIELD_LIMIT)}",
             f"<b>模型建议</b>：{_model_text(sample.model)}",
@@ -118,6 +148,7 @@ class ReviewService:
         stored = await self._store.get(sample_id)
         if stored.status != "pending" or stored.review_message_id is not None:
             return
+        group_title, group_link = await self._resolve_group(sample)
         keyboard = types.InlineKeyboardMarkup(
             [
                 [
@@ -128,12 +159,29 @@ class ReviewService:
         )
         sent = await self._telegram.send_message(
             self._admin_id,
-            render_pending_notification(sample_id, sample),
+            render_pending_notification(
+                sample_id,
+                sample,
+                group_title=group_title,
+                group_link=group_link,
+            ),
             parse_mode=enums.ParseMode.HTML,
             link_preview_options=types.LinkPreviewOptions(is_disabled=True),
             reply_markup=keyboard,
         )
         await self._store.set_review_message(sample_id, self._admin_id, int(sent.id))
+
+    async def _resolve_group(self, sample: SpamSample) -> tuple[str | None, str | None]:
+        chat_id = sample.message.chat_id
+        if chat_id is None:
+            return None, None
+        try:
+            chat = await self._telegram.get_chat(chat_id)
+        except Exception as exc:
+            # 群资料失败不能阻止已写入 D1 的样本进入人工审核。
+            logging.warning("Spam 审核群组资料读取失败（%s）", type(exc).__name__)
+            return None, None
+        return getattr(chat, "title", None), _group_link(sample, chat)
 
     async def notify_next_group_pending(self) -> bool:
         stored = await self._store.next_group_pending()
