@@ -6,3 +6,4 @@ redis==8.1.0
 pillow==13.0.0
 zhconv==1.4.3
 httpx==0.28.1
+python-dotenv==1.2.4

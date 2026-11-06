@@ -35,6 +35,13 @@ from spamdet import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logging.getLogger("apscheduler.executors.default").propagate = False
 
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv(verbose=True)
+except ImportError:
+    logging.warning("Dotenv not found")
+
 APP_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
