@@ -40,4 +40,5 @@
 - Telegram 官方私有消息链接只适用于 `-100...` 的超级群/频道；没有公开 username 的旧式基础群无法构造同类链接，本 Story 会显示无链接群名。
 - 群资料读取是一次额外 Telegram API 请求，受既有有界采集 worker 或管理员 `/review` 串行调用约束；真实 FloodWait 行为未联机验证，失败会降级而不阻止通知。
 - 审核完成后既有逻辑以纯文本更新通知，原 HTML 链接会变为普通文本；这不影响审核前点击跳转，本 Story未扩大范围重构回调后的消息渲染。
-- Git commit / PR：尚未提交。
+- Git commit：`9afa9226f9d03a413c7b865022a3c01ed3c4816c`（`add group links to spam review notifications`）。
+- PR：尚未创建。
