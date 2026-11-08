@@ -45,6 +45,7 @@ Spam 学习功能已接入现有规则删除路径，功能默认关闭：
 启用 `SPAM_LEARNING_ENABLED` 时，单个管理员 ID 和三项 D1 配置必须存在。
 所有密钥只能通过环境变量或 Secret 注入。
 规则删除前只做同步内存快照；Bio 和 D1 请求在有界后台队列中执行。队列已满时丢弃采集任务，不影响删除。
+样本 `message.date` 和 D1 `created_at` 均保存为 UTC；容器日志仍按 `TZ=Asia/Shanghai` 显示本地时间。
 只有 D1 pending 写入成功后才会私聊该管理员。管理员可在 Bot 私聊中使用 `/dataset`
 查看聚合统计，使用 `/model` 查看模型可用性、类型、版本和预测语义；这两个命令都不会
 向其他用户开放。
@@ -225,6 +226,14 @@ python -m spamdet.d1_migrate --apply
 远程建表通过 Cloudflare D1 REST API 执行，不需要 Cloudflare Worker。当前系统允许重建 D1，
 因此不提供旧 Schema 升级路径；对旧表执行 `IF NOT EXISTS` 不会把它升级到 v2。不要在命令行参数
 或日志中填写 Token，也不要在未核对数据库目标时执行删除操作。
+
+Story 014 已将现有远程 D1 中由旧 `TZ=Asia/Shanghai` 容器误标为 UTC 的历史
+`message.date` 修正完毕。一次性工具只匹配与 `created_at` 相差约 8 小时的记录，并要求显式确认；
+已修正数据库无需再次运行。其他数据库只有在确认全部历史数据来自同一旧上海时区容器后才能执行：
+
+```shell
+python -m spamdet.d1_message_date_backfill --confirm-asia-shanghai-history
+```
 
 如确实需要清空开发数据并按最终 Schema 重建，先导出 D1 配置，再同时提供固定确认词和完全
 一致的数据库 ID：

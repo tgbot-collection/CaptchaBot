@@ -26,7 +26,10 @@ def _utc_iso(value: datetime | None) -> str | None:
     if value is None:
         return None
     if value.tzinfo is None:
-        value = value.replace(tzinfo=timezone.utc)
+        # Kurigram 2.2.26 使用 datetime.fromtimestamp() 生成本地无时区时间。
+        # timestamp() 会按同一进程的本地时区解释该值，再显式转为 UTC，
+        # 避免把 Asia/Shanghai 的墙上时间直接错误标记成 Z。
+        value = datetime.fromtimestamp(value.timestamp(), timezone.utc)
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
