@@ -12,7 +12,7 @@ SPAM_CANDIDATES ?= models/candidates
 SPAM_RELEASES ?= models/releases
 
 .DEFAULT_GOAL := help
-.PHONY: help train-spam-model export-spam-dataset build-spam-candidate approve-spam-candidate spam ham reset-d1
+.PHONY: help train-spam-model export-spam-dataset build-spam-candidate approve-spam-candidate spam ham import-spam-file reset-d1
 
 # 显示可用 target；这是默认 target，不修改任何文件或远程状态。
 help:
@@ -22,6 +22,7 @@ help:
 	@echo "make approve-spam-candidate 人工批准候选，需要 CANDIDATE 和 APPROVED_BY"
 	@echo "make spam id=1,2,3       将 D1 样本批量人工标注为 Spam"
 	@echo "make ham id=1,2,3        将 D1 样本批量人工标注为 Ham"
+	@echo "make import-spam-file file=message.txt 从 UTF-8 文本文件补录一条人工确认的 Spam"
 	@echo "make reset-d1               永久删除并重建 D1 samples 表，需要双重确认"
 
 # 仅在 spam.txt 或模型代码变化后使用；日常运行 Bot 不需要执行。
@@ -53,6 +54,12 @@ ham: export SPAM_SAMPLE_IDS := $(id)
 ham:
 	@test -n "$$SPAM_SAMPLE_IDS" || (echo "必须提供 id=1,2,3"; exit 2)
 	$(PYTHON) -m spamdet.d1_label --label ham --ids "$$SPAM_SAMPLE_IDS"
+
+# 一个 UTF-8 .txt 文件代表一条完整、多行的人工确认 Spam；需要 D1 凭证和 SPAM_ADMIN_ID。
+import-spam-file: export SPAM_IMPORT_FILE := $(file)
+import-spam-file:
+	@test -n "$$SPAM_IMPORT_FILE" || (echo "必须提供 file=message.txt"; exit 2)
+	$(PYTHON) -m spamdet.d1_import_spam --file "$$SPAM_IMPORT_FILE" --confirm-spam
 
 # 仅限允许丢弃全部样本的开发阶段。先删表，成功后立即执行最终 Migration 重建。
 # 示例：make reset-d1 CONFIRM_RESET_D1=YES

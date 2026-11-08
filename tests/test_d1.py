@@ -116,6 +116,35 @@ class D1ClientTests(unittest.IsolatedAsyncioTestCase):
         count = self.transport.connection.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
         self.assertEqual(count, 1)
 
+    async def test_manual_spam_import_is_reviewed_and_idempotent(self) -> None:
+        text = "第一行\n第二行🚀"
+
+        first = await self.client.import_manual_spam(text, 12345)
+        second = await self.client.import_manual_spam(text, 12345)
+
+        self.assertTrue(first.created)
+        self.assertEqual(second, replace(first, created=False))
+        record = await self.client.get(first.id)
+        self.assertEqual((record.source, record.status, record.label), ("manual", "reviewed", "spam"))
+        self.assertEqual(record.reviewed_by, 12345)
+        self.assertEqual(record.text, text)
+        self.assertEqual(record.sample["message"]["text"], text)
+        self.assertIsNone(record.sample["message"]["chat_id"])
+        self.assertIsNone(record.sample["message"]["message_id"])
+        self.assertIsNone(record.sample["message"]["date"])
+        insert_payload = json.loads(self.transport.requests[1].content)
+        self.assertNotIn(text, insert_payload["sql"])
+        self.assertEqual(insert_payload["params"].count(text), 2)
+
+    async def test_manual_spam_import_rejects_existing_non_spam_state(self) -> None:
+        sample_id = await self.client.create_pending(make_sample())
+
+        with self.assertRaisesRegex(D1APIError, "拒绝自动补录"):
+            await self.client.import_manual_spam(make_sample().message.text, 12345)
+
+        record = await self.client.get(sample_id)
+        self.assertEqual((record.status, record.label), ("pending", None))
+
     async def test_unavailable_prediction_persists_null_version_and_score(self) -> None:
         sample = replace(
             make_sample(),

@@ -32,6 +32,7 @@
 12. `012-manual-label.md`：增加原子批量人工标注 D1 样本的 Make 运维入口。
 13. `013-review-group-link.md`：在审核通知中显示可点击的来源群名，不改变样本 Schema 和删除路径。
 14. `014-message-date-utc.md`：将消息时间统一保存为 UTC，并修复上海时区旧容器写入的历史时间。
+15. `015-import-spam-file.md`：从一个 UTF-8 文本文件补录一条人工确认的 D1 Spam 样本。
 
 ## V1 明确不做
 AI 自动删除/封禁、头像识别、对所有未命中关键词消息的 Shadow Mode、在线自动学习、定时重训、Cloudflare Worker 网关、外部 LLM API。

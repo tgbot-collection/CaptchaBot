@@ -184,6 +184,7 @@ Python CLI，避免 Make 变量隐式改变发布语义。
 | `approve-spam-candidate` | 将审查后的候选复制为不可覆盖 release | 人工重训第三步；需要 `CANDIDATE` 和 `APPROVED_BY`，仍不会部署 |
 | `spam` | 将一个或多个 D1 样本人工标注为 Spam | 人工确认样本后使用；需要 D1 凭证、`SPAM_ADMIN_ID` 和 `id=1,2,3` |
 | `ham` | 将一个或多个 D1 样本人工标注为 Ham | 人工确认样本后使用；需要 D1 凭证、`SPAM_ADMIN_ID` 和 `id=1,2,3` |
+| `import-spam-file` | 从一个 UTF-8 `.txt` 文件补录一条完整、多行 Spam | 人工确认文件内容后使用；需要 D1 凭证、`SPAM_ADMIN_ID` 和 `file=...` |
 | `reset-d1` | 永久删除并重建 D1 `samples` 表 | 仅限允许丢弃全部样本的开发阶段；正常运行、重训和发布都不需要 |
 
 通常你只需要直接启动 Bot。只有修改 `spam.txt` 才手工运行 `train-spam-model`；只有准备使用
@@ -205,6 +206,16 @@ make spam id=6,7
 重复 ID 会去重。已 reviewed 的样本可用该入口纠正标签，并以当前时间和 `SPAM_ADMIN_ID`
 记录本次操作；如果批次中任一 ID 不存在，整批不会更新。标签必须来自人工确认，不能根据规则
 命中或模型建议直接批量标注。
+
+漏采但已经人工确认的完整 Spam 可以从一个 UTF-8 `.txt` 文件补录；一个文件是一条样本，
+内部换行和 Unicode 会保留，文件末尾换行会移除。未知 Telegram 字段保持 null：
+
+```shell
+make import-spam-file file=local/missed-message.txt PYTHON=venv/bin/python
+```
+
+相同 reviewed/spam 文本重复执行会返回已有 ID，不重复写入；若相同文本已有 pending 或 Ham，
+命令会拒绝自动覆盖，必须先人工核对并使用现有 `make spam`/`make ham` 入口处理。
 
 ## D1 Migration
 

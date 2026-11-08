@@ -13,7 +13,7 @@ from urllib.parse import quote
 import httpx
 
 from .config import SpamLearningConfig
-from .schemas import SpamSample
+from .schemas import SpamSample, sample_from_seed_text
 
 
 _RETRYABLE_STATUS_CODES = frozenset({429, 500, 502, 503, 504})
@@ -99,6 +99,12 @@ class SampleStats:
     reviewed: int
     spam: int
     ham: int
+
+
+@dataclass(frozen=True, slots=True)
+class ManualSpamImportResult:
+    id: int
+    created: bool
 
 
 class D1Client:
@@ -203,6 +209,74 @@ class D1Client:
         if not existing_rows:
             raise D1APIError("D1 去重写入后未能读取样本")
         return _positive_id(existing_rows[0].get("id"), "已有样本")
+
+    async def import_manual_spam(self, text: str, admin_id: int) -> ManualSpamImportResult:
+        """将一条人工确认的完整文本作为 reviewed/spam 补录，且不制造冲突标签。"""
+
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("text 必须是非空字符串")
+        admin_id = _positive_id(admin_id, "admin_id")
+        existing = await self._query(
+            "SELECT id, status, label FROM samples WHERE text = ? ORDER BY id ASC",
+            (text,),
+        )
+        existing_rows = _result_rows(existing)
+        if existing_rows:
+            if any(row.get("status") != "reviewed" or row.get("label") != "spam" for row in existing_rows):
+                raise D1APIError("相同文本已存在未审核或非 Spam 样本，拒绝自动补录")
+            return ManualSpamImportResult(
+                id=_positive_id(existing_rows[0].get("id"), "已有 Spam 样本"),
+                created=False,
+            )
+
+        sample = sample_from_seed_text(text)
+        dedupe_key = _manual_dedupe_key(text)
+        result = await self._query(
+            """
+            INSERT INTO samples (
+                schema_version, source, message_json, text, status, label,
+                reviewed_at, reviewed_by, dedupe_key
+            )
+            SELECT ?, ?, ?, ?, 'reviewed', 'spam', CURRENT_TIMESTAMP, ?, ?
+            WHERE NOT EXISTS (SELECT 1 FROM samples WHERE text = ?)
+            ON CONFLICT(dedupe_key) DO NOTHING
+            RETURNING id
+            """,
+            (
+                str(sample.schema_version),
+                sample.source,
+                sample.to_json(),
+                text,
+                str(admin_id),
+                dedupe_key,
+                text,
+            ),
+        )
+        rows = _result_rows(result)
+        if rows:
+            return ManualSpamImportResult(
+                id=_positive_id(rows[0].get("id"), "新建手工 Spam 样本"),
+                created=True,
+            )
+
+        duplicate = await self._query(
+            "SELECT id, text, status, label FROM samples WHERE dedupe_key = ?",
+            (dedupe_key,),
+        )
+        duplicate_rows = _result_rows(duplicate)
+        if len(duplicate_rows) != 1:
+            raise D1APIError("D1 手工补录去重后未能读取样本")
+        duplicate_row = duplicate_rows[0]
+        if (
+            duplicate_row.get("text") != text
+            or duplicate_row.get("status") != "reviewed"
+            or duplicate_row.get("label") != "spam"
+        ):
+            raise D1APIError("D1 手工补录去重键冲突，未写入样本")
+        return ManualSpamImportResult(
+            id=_positive_id(duplicate_row.get("id"), "已有手工 Spam 样本"),
+            created=False,
+        )
 
     async def next_group_pending(self) -> StoredSample | None:
         result = await self._query(
@@ -423,6 +497,11 @@ class D1Client:
 def _online_dedupe_key(sample: SpamSample) -> str:
     identity = f"v2\0{sample.source}\0{sample.message.chat_id}\0{sample.message.message_id}"
     return "v2:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def _manual_dedupe_key(text: str) -> str:
+    identity = f"v2\0manual\0{text}"
+    return "manual:v2:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
 def _positive_id(value: Any, name: str) -> int:

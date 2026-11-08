@@ -16,5 +16,6 @@
 - [x] 012 — D1 批量人工标注入口 · [Notes](notes/012-notes.md) · 已完成
 - [x] 013 — 审核通知群组链接 · [Notes](notes/013-notes.md) · 已完成
 - [x] 014 — 消息时间统一为 UTC · [Notes](notes/014-notes.md) · 已完成（远程 D1 148 条历史记录已回填）
+- [x] 015 — 从文本文件补录人工 Spam · [Notes](notes/015-notes.md) · 已完成
 
 这里仅记录状态；真实验证方式/结果、决策、修改文件、风险和 commit hash 必须写入对应 Notes。每次新会话先阅读已完成的 Notes。
