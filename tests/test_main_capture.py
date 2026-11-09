@@ -115,6 +115,29 @@ class KeywordHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(capture.samples), 1)
         self.assertEqual(capture.samples[0].matched_rule, "blacklist_message:收米")
 
+    async def test_structured_keyword_hit_uses_shared_content_without_network_lookup(self) -> None:
+        capture = RecordingCapture()
+        main.spam_capture_service = capture
+        message = FakeMessage()
+        message.text = None
+        message.caption = None
+        message.media = "checklist"
+        message.checklist = SimpleNamespace(
+            title="普通标题",
+            entities=[],
+            tasks=[SimpleNamespace(text="点击加入洗钱交流群", entities=[])],
+        )
+        client = SimpleNamespace()
+
+        with patch.dict("os.environ", {"BLACKLIST_MESSAGE": "洗钱"}, clear=False):
+            result = await main.group_message_preprocess(client, message)
+
+        self.assertTrue(result)
+        self.assertTrue(message.deleted)
+        self.assertEqual(len(capture.samples), 1)
+        self.assertEqual(capture.samples[0].message.text, "普通标题\n点击加入洗钱交流群")
+        self.assertEqual(capture.samples[0].matched_rule, "blacklist_message:洗钱")
+
 
 class GroupSelectionTests(unittest.TestCase):
     def test_allowlist_and_all_are_explicit(self) -> None:
@@ -152,6 +175,32 @@ class GroupCaptureTests(unittest.IsolatedAsyncioTestCase):
             self.assertFalse(first.deleted)
             self.assertEqual(capture.samples[0].user.bio, "个人简介中的联系方式 @example")
             self.assertEqual(capture.samples[0].user.bio_state, "present")
+        finally:
+            main.spam_capture_service, main.spamdet_config = old_service, old_config
+
+    async def test_selected_structured_message_stays_group_pending(self) -> None:
+        old_service, old_config = main.spam_capture_service, main.spamdet_config
+        capture = RecordingCapture()
+        main.spam_capture_service = capture
+        main.spamdet_config = SpamLearningConfig(enabled=True, record_groups=frozenset({-100123}))
+        message = FakeMessage()
+        message.text = None
+        message.caption = None
+        message.media = "poll"
+        message.poll = SimpleNamespace(
+            question=SimpleNamespace(text="你喜欢哪个？", entities=[]),
+            options=[SimpleNamespace(text=SimpleNamespace(text="选项 A", entities=[]))],
+            explanation=None,
+            description=None,
+        )
+        try:
+            with patch.object(main.app, "get_chat", new=AsyncMock(return_value=SimpleNamespace(bio=None))):
+                self.assertFalse(await main.group_message_preprocess(main.app, message))
+
+            self.assertEqual(len(capture.samples), 1)
+            sample = capture.samples[0]
+            self.assertEqual((sample.source, sample.status, sample.label), ("group", "pending", None))
+            self.assertEqual(sample.message.text, "你喜欢哪个？\n选项 A")
         finally:
             main.spam_capture_service, main.spamdet_config = old_service, old_config
 

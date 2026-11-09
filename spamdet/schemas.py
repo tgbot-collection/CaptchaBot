@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 import json
 from typing import Any
 
+from .content import ExtractedMessageContent, extract_message_content
+
 
 SCHEMA_VERSION = 2
 _SOURCES = frozenset({"rule", "manual", "group"})
@@ -183,171 +185,19 @@ class SpamSample:
         return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
 
 
-def _snapshot_entities(entities: Any, *, offset_base: int = 0) -> tuple[EntitySnapshot, ...]:
-    result: list[EntitySnapshot] = []
-    for entity in entities or ():
-        user = getattr(entity, "user", None)
-        result.append(
-            EntitySnapshot(
-                type=_enum_value(getattr(entity, "type", None)) or "unknown",
-                offset=offset_base + int(getattr(entity, "offset", 0)),
-                length=int(getattr(entity, "length", 0)),
-                url=getattr(entity, "url", None),
-                user_id=getattr(user, "id", None),
-                language=getattr(entity, "language", None),
-                custom_emoji_id=getattr(entity, "custom_emoji_id", None),
-            )
+def _snapshot_entities(content: ExtractedMessageContent) -> tuple[EntitySnapshot, ...]:
+    return tuple(
+        EntitySnapshot(
+            type=entity.type,
+            offset=entity.offset,
+            length=entity.length,
+            url=entity.url,
+            user_id=entity.user_id,
+            language=entity.language,
+            custom_emoji_id=entity.custom_emoji_id,
         )
-    return tuple(result)
-
-
-def _utf16_length(value: str) -> int:
-    """返回 Telegram entity offset 使用的 UTF-16 code unit 数。"""
-
-    return len(value.encode("utf-16-le")) // 2
-
-
-def _snapshot_text_components(components: Any) -> tuple[str, tuple[EntitySnapshot, ...]]:
-    """合并多段结构化文字，并把各段 entity offset 映射到合并文本。"""
-
-    parts: list[str] = []
-    entities: list[EntitySnapshot] = []
-    current_offset = 0
-    for value, explicit_entities in components:
-        if not isinstance(value, str):
-            explicit_entities = getattr(value, "entities", explicit_entities)
-            value = getattr(value, "text", None)
-        if not isinstance(value, str) or not value:
-            continue
-        if parts:
-            current_offset += 1  # 分隔各段的换行符占一个 UTF-16 code unit。
-        parts.append(value)
-        entities.extend(_snapshot_entities(explicit_entities, offset_base=current_offset))
-        current_offset += _utf16_length(value)
-    return "\n".join(parts), tuple(entities)
-
-
-def _chat_display_components(chats: Any) -> list[tuple[str | None, None]]:
-    result: list[tuple[str | None, None]] = []
-    for chat in chats or ():
-        result.append((getattr(chat, "title", None) or getattr(chat, "username", None), None))
-    return result
-
-
-def _snapshot_structured_content(message: Any) -> tuple[str, tuple[EntitySnapshot, ...]]:
-    """提取 Kurigram 中不位于 Message.text/caption 的可见结构化文字。"""
-
-    checklist = getattr(message, "checklist", None)
-    if checklist is not None:
-        components = [(getattr(checklist, "title", None), getattr(checklist, "entities", None))]
-        components.extend(
-            (getattr(task, "text", None), getattr(task, "entities", None))
-            for task in (getattr(checklist, "tasks", None) or ())
-        )
-        return _snapshot_text_components(components)
-
-    poll = getattr(message, "poll", None)
-    if poll is not None:
-        components = [(getattr(poll, "question", None), None)]
-        components.extend((getattr(option, "text", None), None) for option in (getattr(poll, "options", None) or ()))
-        components.extend(
-            ((getattr(poll, "explanation", None), None), (getattr(poll, "description", None), None))
-        )
-        return _snapshot_text_components(components)
-
-    contact = getattr(message, "contact", None)
-    if contact is not None:
-        return _snapshot_text_components(
-            (
-                (getattr(contact, "first_name", None), None),
-                (getattr(contact, "last_name", None), None),
-                (getattr(contact, "phone_number", None), None),
-            )
-        )
-
-    venue = getattr(message, "venue", None)
-    if venue is not None:
-        return _snapshot_text_components(
-            ((getattr(venue, "title", None), None), (getattr(venue, "address", None), None))
-        )
-
-    location = getattr(message, "location", None)
-    if location is not None:
-        return _snapshot_text_components(((getattr(location, "address", None), None),))
-
-    game = getattr(message, "game", None)
-    if game is not None:
-        return _snapshot_text_components(
-            (
-                (getattr(game, "title", None), None),
-                (getattr(game, "description", None), None),
-                (getattr(game, "short_name", None), None),
-            )
-        )
-
-    invoice = getattr(message, "invoice", None)
-    if invoice is not None:
-        components = [
-            (getattr(invoice, "title", None), None),
-            (getattr(invoice, "description", None), None),
-            (getattr(invoice, "start_parameter", None), None),
-        ]
-        components.extend((getattr(price, "label", None), None) for price in (getattr(invoice, "prices", None) or ()))
-        return _snapshot_text_components(components)
-
-    giveaway = getattr(message, "giveaway", None)
-    if giveaway is not None:
-        components = [(getattr(giveaway, "description", None), None)]
-        components.extend(_chat_display_components(getattr(giveaway, "chats", None)))
-        return _snapshot_text_components(components)
-
-    giveaway_winners = getattr(message, "giveaway_winners", None)
-    if giveaway_winners is not None:
-        components = [(getattr(giveaway_winners, "prize_description", None), None)]
-        components.extend(_chat_display_components((getattr(giveaway_winners, "chat", None),)))
-        return _snapshot_text_components(components)
-
-    story = getattr(message, "story", None)
-    if story is not None:
-        return _snapshot_text_components(((getattr(story, "caption", None), getattr(story, "caption_entities", None)),))
-
-    web_page = getattr(message, "web_page", None)
-    if web_page is not None:
-        return _snapshot_text_components(
-            (
-                (getattr(web_page, "url", None), None),
-                (getattr(web_page, "site_name", None), None),
-                (getattr(web_page, "title", None), None),
-                (getattr(web_page, "description", None), None),
-                (getattr(web_page, "author", None), None),
-            )
-        )
-
-    audio = getattr(message, "audio", None)
-    if audio is not None:
-        return _snapshot_text_components(
-            (
-                (getattr(audio, "performer", None), None),
-                (getattr(audio, "title", None), None),
-                (getattr(audio, "file_name", None), None),
-            )
-        )
-
-    for attribute in ("document", "video", "animation"):
-        media = getattr(message, attribute, None)
-        if media is not None:
-            return _snapshot_text_components(((getattr(media, "file_name", None), None),))
-
-    sticker = getattr(message, "sticker", None)
-    if sticker is not None:
-        return _snapshot_text_components(
-            (
-                (getattr(sticker, "emoji", None), None),
-                (getattr(sticker, "set_name", None), None),
-                (getattr(sticker, "file_name", None), None),
-            )
-        )
-    return "", ()
+        for entity in content.entities
+    )
 
 
 def sample_from_message(
@@ -357,15 +207,14 @@ def sample_from_message(
     bio: str | None = None,
     bio_state: str | None = None,
     source: str = "rule",
+    content: ExtractedMessageContent | None = None,
 ) -> SpamSample:
     """同步提取 Pyrogram ``Message`` 的必要字段，不执行任何 API 请求。"""
 
-    text = getattr(message, "text", None)
-    caption = getattr(message, "caption", None)
+    content = content or extract_message_content(message)
     from_user = getattr(message, "from_user", None)
     via_bot = getattr(message, "via_bot", None)
     chat = getattr(message, "chat", None)
-    entity_source = getattr(message, "entities", None) if text is not None else getattr(message, "caption_entities", None)
 
     resolved_bio_state = bio_state or ("present" if bio else "not_requested")
     return SpamSample(
@@ -374,9 +223,9 @@ def sample_from_message(
             chat_id=getattr(chat, "id", None),
             message_id=getattr(message, "id", None),
             date=_utc_iso(getattr(message, "date", None)),
-            text=text if text is not None else "",
-            caption=caption,
-            entities=_snapshot_entities(entity_source),
+            text=content.text,
+            caption=content.caption,
+            entities=_snapshot_entities(content),
             media_type=_enum_value(getattr(message, "media", None)),
         ),
         user=UserSnapshot(
@@ -396,7 +245,11 @@ def sample_from_message(
     )
 
 
-def sample_from_admin_forward(message: Any) -> SpamSample:
+def sample_from_admin_forward(
+    message: Any,
+    *,
+    content: ExtractedMessageContent | None = None,
+) -> SpamSample:
     """将管理员转发的消息转换为人工确认 Spam，不把转发者当成原作者。"""
 
     origin = getattr(message, "forward_origin", None)
@@ -425,20 +278,8 @@ def sample_from_admin_forward(message: Any) -> SpamSample:
     else:
         user = UserSnapshot(first_name=getattr(origin, "sender_user_name", None))
 
-    text = getattr(message, "text", None)
-    caption = getattr(message, "caption", None)
-    structured_text, structured_entities = _snapshot_structured_content(message)
-    if text is None and caption is None and structured_text:
-        text = structured_text
-        entity_snapshots = structured_entities
-    else:
-        entity_source = (
-            getattr(message, "entities", None)
-            if text is not None
-            else getattr(message, "caption_entities", None)
-        )
-        entity_snapshots = _snapshot_entities(entity_source)
-    if not ((isinstance(text, str) and text.strip()) or (isinstance(caption, str) and caption.strip())):
+    content = content or extract_message_content(message)
+    if not content.search_text.strip():
         raise ValueError("转发消息必须包含可提取的文字内容")
 
     via_bot = getattr(message, "via_bot", None)
@@ -448,9 +289,9 @@ def sample_from_admin_forward(message: Any) -> SpamSample:
             chat_id=getattr(origin_chat, "id", None),
             message_id=getattr(origin, "message_id", None),
             date=_utc_iso(getattr(origin, "date", None)),
-            text=text if text is not None else "",
-            caption=caption,
-            entities=entity_snapshots,
+            text=content.text,
+            caption=content.caption,
+            entities=_snapshot_entities(content),
             media_type=_enum_value(getattr(message, "media", None)),
         ),
         user=user,

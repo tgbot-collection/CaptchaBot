@@ -40,7 +40,12 @@ Spam 学习功能已接入现有规则删除路径，功能默认关闭：
 * `SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS`：关停排空超时，默认 `5.0`
 * `SPAM_CAPTURE_GROUPS`：默认不记录普通群消息；`all` 记录所有可见群，或用 `-100123,-100456` 只记录指定群。
 
-普通群消息只采集有文本或 caption、未命中规则的消息；D1 保存为未标注的 `group/pending`，不会自动当作 Ham。管理员在私聊发送 `/review`，每次领取一条并用 Spam/Not Spam 按钮审核。普通消息不主动推送通知；Handler 为既有 Bio 规则取得用户资料后，会复用该 Bio 写入样本，不增加 Telegram 请求。D1 使用 Story 010 的全新 Schema v2，启用前应在确认目标后重建数据库并执行 `python -m spamdet.d1_migrate --apply`，不支持旧表升级或记录回填。
+普通群消息只采集有可提取文字、未命中规则的消息；D1 保存为未标注的 `group/pending`，不会自动当作 Ham。管理员在私聊发送 `/review`，每次领取一条并用 Spam/Not Spam 按钮审核。普通消息不主动推送通知；Handler 为既有 Bio 规则取得用户资料后，会复用该 Bio 写入样本，不增加 Telegram 请求。D1 使用 Story 010 的全新 Schema v2，启用前应在确认目标后重建数据库并执行 `python -m spamdet.d1_migrate --apply`，不支持旧表升级或记录回填。
+
+Story 017 起，群消息和管理员转发共用 `extract_message_content()`：除 text/caption 外，Checklist、
+Poll 等结构化可见文字也会参与现有 `BLACKLIST_MESSAGE` 本地匹配，并在规则命中时保存进同一份
+删除前快照。提取只读取当前 `Message`，不请求 Telegram、D1、Bio 或模型；未命中规则时仍只按
+`SPAM_CAPTURE_GROUPS` 保存为 `group/pending`，不会因为内容被成功提取就自动标注 Spam。
 
 启用 `SPAM_LEARNING_ENABLED` 时，单个管理员 ID 和三项 D1 配置必须存在。
 所有密钥只能通过环境变量或 Secret 注入。

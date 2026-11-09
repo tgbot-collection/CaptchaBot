@@ -25,9 +25,11 @@ from spamdet import (
     CaptureService,
     D1Client,
     D1Error,
+    ExtractedMessageContent,
     InferenceService,
     ReviewService,
     SpamLearningConfig,
+    extract_message_content,
     sample_from_admin_forward,
     sample_from_message,
     render_model_status,
@@ -351,6 +353,7 @@ async def delete_rule_message(
     matched_rule: str,
     bio: str | None = None,
     bio_state: str | None = None,
+    content: ExtractedMessageContent | None = None,
 ) -> None:
     """先同步快照，再执行原删除；删除尝试后非阻塞提交采集。"""
 
@@ -363,6 +366,7 @@ async def delete_rule_message(
                 matched_rule=matched_rule,
                 bio=bio,
                 bio_state=bio_state,
+                content=content,
             )
         except Exception as exc:
             # 快照异常不能阻止既有删除，也不记录可能含敏感数据的异常原文。
@@ -410,7 +414,8 @@ async def delete_guest_bot_trigger(client: "Client", message: "types.Message"):
 @app.on_edited_message(filters.group & filters.incoming & ~filters.service)
 async def group_message_preprocess(client: "Client", message: "types.Message"):
     # Check message-local spam signals before any user or sticker API requests.
-    user_message = message.text or message.caption or ""
+    content = extract_message_content(message)
+    user_message = content.search_text
     sender_username = (getattr(message.from_user, "username", None) or "").lower()
     has_inline_buttons = isinstance(message.reply_markup, types.InlineKeyboardMarkup) and any(
         message.reply_markup.inline_keyboard
@@ -427,7 +432,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
     elif has_inline_buttons and sender_username != "benny_captcha_bot":
         reason = "inline_keyboard"
     if reason:
-        await delete_rule_message(message, matched_rule=f"message_signal:{reason}")
+        await delete_rule_message(message, matched_rule=f"message_signal:{reason}", content=content)
         if is_guest_bot_reply:
             await delete_guest_bot_trigger(client, message)
         logging.warning("potential spam message detected (%s)", reason)
@@ -442,7 +447,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
     # 纯本地关键词检查必须先于 Sticker、Bio 等网络请求，保持命中后立即删除。
     for msg in blacklist_message:
         if keyword_hit(msg, user_message):
-            await delete_rule_message(message, matched_rule=f"blacklist_message:{msg}")
+            await delete_rule_message(message, matched_rule=f"blacklist_message:{msg}", content=content)
             return True
 
     sender_id = getattr(message.from_user, "id", None) or getattr(message.chat, "id", None)
@@ -462,7 +467,11 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
         if len(sticker_set.packs) == 1 or "点击直达" in sticker_set.set.title:
             logging.info("spam sticker detected")
             sticker_reason = "single_pack" if len(sticker_set.packs) == 1 else "click_through_title"
-            await delete_rule_message(message, matched_rule=f"sticker_heuristic:{sticker_reason}")
+            await delete_rule_message(
+                message,
+                matched_rule=f"sticker_heuristic:{sticker_reason}",
+                content=content,
+            )
             return True
 
     chat = await app.get_chat(message.from_user.id)
@@ -481,6 +490,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
             matched_rule=direct_rule,
             bio=chat.bio or None,
             bio_state="present" if chat.bio else "empty",
+            content=content,
         )
         logging.warning("potential spam message detected (%s)", direct_rule.split(":", 1)[0])
         # just delete the message
@@ -529,6 +539,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
             matched_rule="|".join(matched_rules),
             bio=chat.bio or None,
             bio_state="present" if chat.bio else "empty",
+            content=content,
         )
         await ban_user(message.chat.id, sender_id)
     else:
@@ -544,6 +555,7 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
                         source="group",
                         bio=chat.bio or None,
                         bio_state="present" if chat.bio else "empty",
+                        content=content,
                     )
                 )
             except Exception as exc:

@@ -2,6 +2,7 @@
 
 from .config import ConfigError, SpamLearningConfig
 from .capture import CaptureService
+from .content import ExtractedEntity, ExtractedMessageContent, extract_message_content
 from .features import ChannelWeights, FeatureChannels, extract_feature_channels
 from .schemas import (
     SCHEMA_VERSION,
@@ -40,6 +41,8 @@ __all__ = [
     "D1HTTPError",
     "D1NotFoundError",
     "EntitySnapshot",
+    "ExtractedEntity",
+    "ExtractedMessageContent",
     "FeatureChannels",
     "MessageSnapshot",
     "InferenceService",
@@ -58,6 +61,7 @@ __all__ = [
     "sample_from_message",
     "sample_from_seed_text",
     "extract_feature_channels",
+    "extract_message_content",
     "render_dataset_stats",
     "render_model_status",
     "render_pending_notification",
