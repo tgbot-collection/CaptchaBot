@@ -288,6 +288,81 @@ class AdminForwardSpamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([entity.offset for entity in sample.message.entities], [0, 5, 9])
         self.assertEqual([entity.type for entity in sample.message.entities], ["bold", "bold", "url"])
 
+    def test_other_structured_media_text_is_extracted(self) -> None:
+        formatted = lambda text: SimpleNamespace(text=text, entities=[])
+        cases = [
+            (
+                "poll",
+                SimpleNamespace(
+                    question=formatted("投票问题"),
+                    options=[SimpleNamespace(text=formatted("选项一")), SimpleNamespace(text=formatted("选项二"))],
+                    explanation=formatted("答案说明"),
+                    description=formatted("投票描述"),
+                ),
+                "投票问题\n选项一\n选项二\n答案说明\n投票描述",
+            ),
+            ("contact", SimpleNamespace(first_name="联系人", last_name="姓名", phone_number="+123", vcard="VCARD"),
+             "联系人\n姓名\n+123"),
+            ("venue", SimpleNamespace(title="场所名称", address="场所地址"), "场所名称\n场所地址"),
+            ("location", SimpleNamespace(address="位置文字地址"), "位置文字地址"),
+            ("game", SimpleNamespace(title="游戏标题", description="游戏描述", short_name="game_name"),
+             "游戏标题\n游戏描述\ngame_name"),
+            (
+                "invoice",
+                SimpleNamespace(
+                    title="商品标题", description="商品描述", start_parameter="start",
+                    prices=[SimpleNamespace(label="商品价格"), SimpleNamespace(label="运费")],
+                ),
+                "商品标题\n商品描述\nstart\n商品价格\n运费",
+            ),
+            (
+                "giveaway",
+                SimpleNamespace(description="赠品描述", chats=[SimpleNamespace(title="参与频道", username=None)]),
+                "赠品描述\n参与频道",
+            ),
+            (
+                "giveaway_winners",
+                SimpleNamespace(prize_description="获奖说明", chat=SimpleNamespace(title="主办频道", username=None)),
+                "获奖说明\n主办频道",
+            ),
+            ("story", SimpleNamespace(caption="Story caption", caption_entities=[]), "Story caption"),
+            (
+                "web_page",
+                SimpleNamespace(
+                    url="https://example.com", site_name="站点", title="网页标题",
+                    description="网页描述", author="网页作者",
+                ),
+                "https://example.com\n站点\n网页标题\n网页描述\n网页作者",
+            ),
+            ("audio", SimpleNamespace(performer="歌手", title="歌曲", file_name="audio.mp3"),
+             "歌手\n歌曲\naudio.mp3"),
+            ("document", SimpleNamespace(file_name="广告文档.pdf"), "广告文档.pdf"),
+            ("video", SimpleNamespace(file_name="广告视频.mp4"), "广告视频.mp4"),
+            ("animation", SimpleNamespace(file_name="广告动画.gif"), "广告动画.gif"),
+            ("sticker", SimpleNamespace(emoji="🚀", set_name="spam_set", file_name="sticker.webp"),
+             "🚀\nspam_set\nsticker.webp"),
+        ]
+
+        for attribute, content, expected in cases:
+            with self.subTest(attribute=attribute):
+                message = self.forwarded_message()
+                message.text = None
+                message.caption = None
+                setattr(message, attribute, content)
+
+                sample = sample_from_admin_forward(message)
+
+                self.assertEqual(sample.message.text, expected)
+
+    def test_binary_only_media_without_text_is_rejected(self) -> None:
+        message = self.forwarded_message()
+        message.text = None
+        message.caption = None
+        message.photo = SimpleNamespace(file_id="not-persisted")
+
+        with self.assertRaisesRegex(ValueError, "可提取的文字"):
+            sample_from_admin_forward(message)
+
 
 class ModelHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

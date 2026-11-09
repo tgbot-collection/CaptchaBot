@@ -50,13 +50,16 @@ Spam 学习功能已接入现有规则删除路径，功能默认关闭：
 查看聚合统计，使用 `/model` 查看模型可用性、类型、版本和预测语义；这两个命令都不会
 向其他用户开放。
 
-唯一管理员也可以把一条含 text、caption 或 Checklist 文字的 Telegram 消息直接转发到 Bot 私聊。该操作视为
+唯一管理员也可以把一条含 text、caption 或结构化可见文字的 Telegram 消息直接转发到 Bot 私聊。该操作视为
 管理员已经人工确认 Spam，Bot 会把它直接保存为 `manual/reviewed/spam` 并回复 D1 样本 ID，
 不再发送审核按钮。作者资料来自 Kurigram 的 `forward_origin`：已知用户保存 ID、username 和姓名，
 隐藏用户保存 Telegram 提供的显示名，群组/频道保存可取得的 ID、username、标题和作者签名。
-Checklist 会按标题、任务顺序展开为换行文本，并重算合并后 entities 的 UTF-16 offset。
+Checklist、Poll、Contact、Venue/带地址的 Location、Game、Invoice、Giveaway、Story、WebPage，
+以及 Audio/Document/Video/Animation/Sticker 的可用文字元数据会按显示顺序展开为换行文本；
+原有 entities 会按合并后的 UTF-16 offset 重算。
 转发者管理员只作为 `reviewed_by`，不会被写成样本作者；如果转发来源本身就是管理员，Bot 会拒绝
-保存。非管理员、群内转发以及没有文字、caption 或 Checklist 内容的纯媒体消息不会通过这个入口写入。
+保存。非管理员、群内转发以及没有任何可提取文字的纯媒体消息不会通过这个入口写入；不会为
+Photo、Voice、VideoNote、Dice 或 PaidMedia 伪造占位正文。
 
 审核通知会显示可点击的来源群名：公开群使用 username 链接，私有超级群使用原消息所属群的
 Telegram 私有消息链接。群资料读取失败时显示“未知群组”，不会影响 pending 保存、通知按钮或

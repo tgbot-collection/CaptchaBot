@@ -207,29 +207,147 @@ def _utf16_length(value: str) -> int:
     return len(value.encode("utf-16-le")) // 2
 
 
-def _snapshot_checklist(checklist: Any) -> tuple[str, tuple[EntitySnapshot, ...]]:
-    """按显示顺序展开 Checklist，并把各段 entity offset 映射到合并文本。"""
-
-    if checklist is None:
-        return "", ()
+def _snapshot_text_components(components: Any) -> tuple[str, tuple[EntitySnapshot, ...]]:
+    """合并多段结构化文字，并把各段 entity offset 映射到合并文本。"""
 
     parts: list[str] = []
     entities: list[EntitySnapshot] = []
     current_offset = 0
-    components = [(getattr(checklist, "title", None), getattr(checklist, "entities", None))]
-    components.extend(
-        (getattr(task, "text", None), getattr(task, "entities", None))
-        for task in (getattr(checklist, "tasks", None) or ())
-    )
-    for value, component_entities in components:
+    for value, explicit_entities in components:
+        if not isinstance(value, str):
+            explicit_entities = getattr(value, "entities", explicit_entities)
+            value = getattr(value, "text", None)
         if not isinstance(value, str) or not value:
             continue
         if parts:
             current_offset += 1  # 分隔各段的换行符占一个 UTF-16 code unit。
         parts.append(value)
-        entities.extend(_snapshot_entities(component_entities, offset_base=current_offset))
+        entities.extend(_snapshot_entities(explicit_entities, offset_base=current_offset))
         current_offset += _utf16_length(value)
     return "\n".join(parts), tuple(entities)
+
+
+def _chat_display_components(chats: Any) -> list[tuple[str | None, None]]:
+    result: list[tuple[str | None, None]] = []
+    for chat in chats or ():
+        result.append((getattr(chat, "title", None) or getattr(chat, "username", None), None))
+    return result
+
+
+def _snapshot_structured_content(message: Any) -> tuple[str, tuple[EntitySnapshot, ...]]:
+    """提取 Kurigram 中不位于 Message.text/caption 的可见结构化文字。"""
+
+    checklist = getattr(message, "checklist", None)
+    if checklist is not None:
+        components = [(getattr(checklist, "title", None), getattr(checklist, "entities", None))]
+        components.extend(
+            (getattr(task, "text", None), getattr(task, "entities", None))
+            for task in (getattr(checklist, "tasks", None) or ())
+        )
+        return _snapshot_text_components(components)
+
+    poll = getattr(message, "poll", None)
+    if poll is not None:
+        components = [(getattr(poll, "question", None), None)]
+        components.extend((getattr(option, "text", None), None) for option in (getattr(poll, "options", None) or ()))
+        components.extend(
+            ((getattr(poll, "explanation", None), None), (getattr(poll, "description", None), None))
+        )
+        return _snapshot_text_components(components)
+
+    contact = getattr(message, "contact", None)
+    if contact is not None:
+        return _snapshot_text_components(
+            (
+                (getattr(contact, "first_name", None), None),
+                (getattr(contact, "last_name", None), None),
+                (getattr(contact, "phone_number", None), None),
+            )
+        )
+
+    venue = getattr(message, "venue", None)
+    if venue is not None:
+        return _snapshot_text_components(
+            ((getattr(venue, "title", None), None), (getattr(venue, "address", None), None))
+        )
+
+    location = getattr(message, "location", None)
+    if location is not None:
+        return _snapshot_text_components(((getattr(location, "address", None), None),))
+
+    game = getattr(message, "game", None)
+    if game is not None:
+        return _snapshot_text_components(
+            (
+                (getattr(game, "title", None), None),
+                (getattr(game, "description", None), None),
+                (getattr(game, "short_name", None), None),
+            )
+        )
+
+    invoice = getattr(message, "invoice", None)
+    if invoice is not None:
+        components = [
+            (getattr(invoice, "title", None), None),
+            (getattr(invoice, "description", None), None),
+            (getattr(invoice, "start_parameter", None), None),
+        ]
+        components.extend((getattr(price, "label", None), None) for price in (getattr(invoice, "prices", None) or ()))
+        return _snapshot_text_components(components)
+
+    giveaway = getattr(message, "giveaway", None)
+    if giveaway is not None:
+        components = [(getattr(giveaway, "description", None), None)]
+        components.extend(_chat_display_components(getattr(giveaway, "chats", None)))
+        return _snapshot_text_components(components)
+
+    giveaway_winners = getattr(message, "giveaway_winners", None)
+    if giveaway_winners is not None:
+        components = [(getattr(giveaway_winners, "prize_description", None), None)]
+        components.extend(_chat_display_components((getattr(giveaway_winners, "chat", None),)))
+        return _snapshot_text_components(components)
+
+    story = getattr(message, "story", None)
+    if story is not None:
+        return _snapshot_text_components(((getattr(story, "caption", None), getattr(story, "caption_entities", None)),))
+
+    web_page = getattr(message, "web_page", None)
+    if web_page is not None:
+        return _snapshot_text_components(
+            (
+                (getattr(web_page, "url", None), None),
+                (getattr(web_page, "site_name", None), None),
+                (getattr(web_page, "title", None), None),
+                (getattr(web_page, "description", None), None),
+                (getattr(web_page, "author", None), None),
+            )
+        )
+
+    audio = getattr(message, "audio", None)
+    if audio is not None:
+        return _snapshot_text_components(
+            (
+                (getattr(audio, "performer", None), None),
+                (getattr(audio, "title", None), None),
+                (getattr(audio, "file_name", None), None),
+            )
+        )
+
+    for attribute in ("document", "video", "animation"):
+        media = getattr(message, attribute, None)
+        if media is not None:
+            return _snapshot_text_components(((getattr(media, "file_name", None), None),))
+
+    sticker = getattr(message, "sticker", None)
+    if sticker is not None:
+        return _snapshot_text_components(
+            (
+                (getattr(sticker, "emoji", None), None),
+                (getattr(sticker, "set_name", None), None),
+                (getattr(sticker, "file_name", None), None),
+            )
+        )
+    return "", ()
 
 
 def sample_from_message(
@@ -309,10 +427,10 @@ def sample_from_admin_forward(message: Any) -> SpamSample:
 
     text = getattr(message, "text", None)
     caption = getattr(message, "caption", None)
-    checklist_text, checklist_entities = _snapshot_checklist(getattr(message, "checklist", None))
-    if text is None and caption is None and checklist_text:
-        text = checklist_text
-        entity_snapshots = checklist_entities
+    structured_text, structured_entities = _snapshot_structured_content(message)
+    if text is None and caption is None and structured_text:
+        text = structured_text
+        entity_snapshots = structured_entities
     else:
         entity_source = (
             getattr(message, "entities", None)
@@ -321,7 +439,7 @@ def sample_from_admin_forward(message: Any) -> SpamSample:
         )
         entity_snapshots = _snapshot_entities(entity_source)
     if not ((isinstance(text, str) and text.strip()) or (isinstance(caption, str) and caption.strip())):
-        raise ValueError("转发消息必须包含 text、caption 或 Checklist 文字")
+        raise ValueError("转发消息必须包含可提取的文字内容")
 
     via_bot = getattr(message, "via_bot", None)
     return SpamSample(
