@@ -6,8 +6,9 @@ import unittest
 from unittest.mock import AsyncMock, patch
 
 import main
-from spamdet import ModelStatus, SpamLearningConfig
+from spamdet import ModelStatus, SpamLearningConfig, sample_from_admin_forward
 from spamdet.config import ConfigError
+from spamdet.d1 import ManualSpamImportResult
 
 
 class RecordingCapture:
@@ -153,6 +154,112 @@ class GroupCaptureTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(capture.samples[0].user.bio_state, "present")
         finally:
             main.spam_capture_service, main.spamdet_config = old_service, old_config
+
+
+class AdminForwardSpamTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self) -> None:
+        self.original_config = main.spamdet_config
+        self.original_d1 = main.spam_d1_client
+
+    async def asyncTearDown(self) -> None:
+        main.spamdet_config = self.original_config
+        main.spam_d1_client = self.original_d1
+
+    @staticmethod
+    def forwarded_message(actor_id: int = 123):
+        message = FakeMessage()
+        message.chat.id = actor_id
+        message.from_user.id = actor_id
+        message.from_user.username = "admin"
+        message.text = "原始 Spam 内容🚀"
+        message.forward_origin = SimpleNamespace(
+            type="user",
+            date=datetime(2026, 11, 1, 1, 2, 3, tzinfo=timezone.utc),
+            sender_user=SimpleNamespace(
+                id=999,
+                username="origin",
+                first_name="原作者",
+                last_name="姓名",
+                is_premium=True,
+            ),
+            sender_chat=None,
+            chat=None,
+            message_id=None,
+        )
+        message.replies = []
+
+        async def reply_text(text: str) -> None:
+            message.replies.append(text)
+
+        message.reply_text = reply_text
+        return message
+
+    async def test_admin_forward_is_reviewed_spam_and_uses_origin_user(self) -> None:
+        store = SimpleNamespace(
+            import_forwarded_spam=AsyncMock(return_value=ManualSpamImportResult(id=77, created=True))
+        )
+        main.spamdet_config = SpamLearningConfig(admin_id=123)
+        main.spam_d1_client = store
+        message = self.forwarded_message()
+
+        await main.admin_forwarded_spam_handler(SimpleNamespace(), message)
+
+        sample, reviewer = store.import_forwarded_spam.await_args.args
+        self.assertEqual(reviewer, 123)
+        self.assertEqual((sample.source, sample.status, sample.label), ("manual", "reviewed", "spam"))
+        self.assertEqual(sample.message.text, "原始 Spam 内容🚀")
+        self.assertEqual(sample.user.id, 999)
+        self.assertEqual(sample.user.username, "origin")
+        self.assertNotEqual(sample.user.id, message.from_user.id)
+        self.assertEqual(message.replies, ["Spam 样本已保存，ID=77。"])
+
+    async def test_non_admin_forward_is_rejected_without_write(self) -> None:
+        store = SimpleNamespace(import_forwarded_spam=AsyncMock())
+        main.spamdet_config = SpamLearningConfig(admin_id=123)
+        main.spam_d1_client = store
+        message = self.forwarded_message(actor_id=456)
+
+        await main.admin_forwarded_spam_handler(SimpleNamespace(), message)
+
+        store.import_forwarded_spam.assert_not_awaited()
+        self.assertEqual(message.replies, ["你没有提交 Spam 样本的权限。"])
+
+    async def test_admin_cannot_mark_own_forward_origin_as_spam(self) -> None:
+        store = SimpleNamespace(import_forwarded_spam=AsyncMock())
+        main.spamdet_config = SpamLearningConfig(admin_id=123)
+        main.spam_d1_client = store
+        message = self.forwarded_message()
+        message.forward_origin.sender_user.id = 123
+
+        await main.admin_forwarded_spam_handler(SimpleNamespace(), message)
+
+        store.import_forwarded_spam.assert_not_awaited()
+        self.assertEqual(message.replies, ["不能将管理员本人作为 Spam 原作者，消息未保存。"])
+
+    def test_hidden_and_channel_origins_preserve_available_author_fields(self) -> None:
+        hidden = self.forwarded_message()
+        hidden.forward_origin = SimpleNamespace(
+            type="hidden_user", date=hidden.date, sender_user_name="隐藏作者", sender_user=None,
+            sender_chat=None, chat=None, message_id=None,
+        )
+        hidden_sample = sample_from_admin_forward(hidden)
+        self.assertEqual(hidden_sample.user.first_name, "隐藏作者")
+        self.assertIsNone(hidden_sample.user.id)
+
+        channel = self.forwarded_message()
+        channel.caption = "频道广告 caption"
+        channel.text = None
+        channel.caption_entities = []
+        channel.forward_origin = SimpleNamespace(
+            type="channel", date=channel.date, sender_user=None, sender_chat=None,
+            chat=SimpleNamespace(id=-100999, username="source_channel", title="来源频道"),
+            message_id=88, author_signature="频道作者",
+        )
+        channel_sample = sample_from_admin_forward(channel)
+        self.assertEqual((channel_sample.message.chat_id, channel_sample.message.message_id), (-100999, 88))
+        self.assertEqual(channel_sample.message.caption, "频道广告 caption")
+        self.assertEqual(channel_sample.user.username, "source_channel")
+        self.assertEqual((channel_sample.user.first_name, channel_sample.user.last_name), ("来源频道", "频道作者"))
 
 
 class ModelHandlerTests(unittest.IsolatedAsyncioTestCase):

@@ -17,7 +17,7 @@ from spamdet.d1 import (
     ReviewOutcome,
 )
 from spamdet.d1_migrate import MIGRATION_PATH
-from spamdet.schemas import MessageSnapshot, ModelSuggestion, SpamSample
+from spamdet.schemas import MessageSnapshot, ModelSuggestion, SpamSample, UserSnapshot, sample_from_seed_text
 
 
 class SQLiteD1Transport:
@@ -144,6 +144,39 @@ class D1ClientTests(unittest.IsolatedAsyncioTestCase):
 
         record = await self.client.get(sample_id)
         self.assertEqual((record.status, record.label), ("pending", None))
+
+    async def test_forwarded_spam_import_preserves_origin_and_is_idempotent(self) -> None:
+        sample = replace(
+            sample_from_seed_text("管理员确认的转发 Spam"),
+            user=UserSnapshot(id=999, username="origin", first_name="原作者"),
+            matched_rule="admin_forward:user",
+        )
+
+        first = await self.client.import_forwarded_spam(sample, 12345)
+        second = await self.client.import_forwarded_spam(sample, 12345)
+
+        self.assertTrue(first.created)
+        self.assertEqual(second, replace(first, created=False))
+        record = await self.client.get(first.id)
+        self.assertEqual((record.source, record.status, record.label), ("manual", "reviewed", "spam"))
+        self.assertEqual(record.reviewed_by, 12345)
+        self.assertEqual(record.sample["user"]["id"], 999)
+        self.assertEqual(record.sample["user"]["username"], "origin")
+        self.assertNotEqual(record.sample["user"]["id"], record.reviewed_by)
+        self.assertTrue(record.dedupe_key.startswith("manual-forward:v2:"))
+
+    async def test_forwarded_spam_import_rejects_admin_as_origin(self) -> None:
+        sample = replace(
+            sample_from_seed_text("管理员自己的消息"),
+            user=UserSnapshot(id=12345, first_name="管理员"),
+            matched_rule="admin_forward:user",
+        )
+
+        with self.assertRaisesRegex(ValueError, "管理员本人"):
+            await self.client.import_forwarded_spam(sample, 12345)
+
+        count = self.transport.connection.execute("SELECT COUNT(*) FROM samples").fetchone()[0]
+        self.assertEqual(count, 0)
 
     async def test_unavailable_prediction_persists_null_version_and_score(self) -> None:
         sample = replace(

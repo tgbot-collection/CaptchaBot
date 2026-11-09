@@ -28,6 +28,7 @@ from spamdet import (
     InferenceService,
     ReviewService,
     SpamLearningConfig,
+    sample_from_admin_forward,
     sample_from_message,
     render_model_status,
 )
@@ -109,6 +110,36 @@ async def review_next_handler(client: "Client", message: "types.Message"):
     except D1Error as exc:
         logging.warning("普通群消息审核读取失败（%s）", type(exc).__name__)
         await message.reply_text("审核数据暂时不可用，请稍后重试。")
+
+
+@app.on_message(filters.private & filters.incoming & filters.forwarded)
+async def admin_forwarded_spam_handler(client: "Client", message: "types.Message"):
+    """管理员私聊转发即代表人工确认 Spam；不使用管理员资料构造样本。"""
+
+    actor_id = getattr(getattr(message, "from_user", None), "id", None)
+    if actor_id != spamdet_config.admin_id:
+        await message.reply_text("你没有提交 Spam 样本的权限。")
+        return
+    if spam_d1_client is None:
+        await message.reply_text("Spam 学习功能当前未启用，消息未保存。")
+        return
+    try:
+        sample = sample_from_admin_forward(message)
+        if sample.user.id == actor_id:
+            await message.reply_text("不能将管理员本人作为 Spam 原作者，消息未保存。")
+            return
+        result = await spam_d1_client.import_forwarded_spam(sample, actor_id)
+    except ValueError as exc:
+        logging.info("管理员转发样本未保存（%s）", type(exc).__name__)
+        await message.reply_text("转发消息必须包含可保存的文字或 caption。")
+        return
+    except D1Error as exc:
+        logging.warning("管理员转发 Spam 写入失败（%s）", type(exc).__name__)
+        await message.reply_text("D1 写入失败，消息未保存，请稍后重试。")
+        return
+
+    action = "已保存" if result.created else "已存在，未重复保存"
+    await message.reply_text(f"Spam 样本{action}，ID={result.id}。")
 
 
 @app.on_message(filters.new_chat_members)  # only service message

@@ -278,6 +278,68 @@ class D1Client:
             created=False,
         )
 
+    async def import_forwarded_spam(self, sample: SpamSample, admin_id: int) -> ManualSpamImportResult:
+        """保存管理员确认的结构化转发样本；管理员身份只写入 reviewed_by。"""
+
+        if (
+            sample.source != "manual"
+            or sample.status != "reviewed"
+            or sample.label != "spam"
+            or not (sample.matched_rule or "").startswith("admin_forward:")
+        ):
+            raise ValueError("import_forwarded_spam 只接受管理员转发的 manual/reviewed/spam 样本")
+        if not (sample.message.text.strip() or (sample.message.caption or "").strip()):
+            raise ValueError("转发样本必须包含 text 或 caption")
+
+        admin_id = _positive_id(admin_id, "admin_id")
+        if sample.user.id == admin_id:
+            raise ValueError("不能将管理员本人保存为转发 Spam 的原作者")
+        dedupe_key = _manual_forward_dedupe_key(sample)
+        result = await self._query(
+            """
+            INSERT INTO samples (
+                schema_version, source, message_json, text, status, label,
+                reviewed_at, reviewed_by, dedupe_key
+            )
+            VALUES (?, ?, ?, ?, 'reviewed', 'spam', CURRENT_TIMESTAMP, ?, ?)
+            ON CONFLICT(dedupe_key) DO NOTHING
+            RETURNING id
+            """,
+            (
+                str(sample.schema_version),
+                sample.source,
+                sample.to_json(),
+                sample.message.text,
+                str(admin_id),
+                dedupe_key,
+            ),
+        )
+        rows = _result_rows(result)
+        if rows:
+            return ManualSpamImportResult(
+                id=_positive_id(rows[0].get("id"), "新建转发 Spam 样本"),
+                created=True,
+            )
+
+        duplicate = await self._query(
+            "SELECT id, message_json, status, label FROM samples WHERE dedupe_key = ?",
+            (dedupe_key,),
+        )
+        duplicate_rows = _result_rows(duplicate)
+        if len(duplicate_rows) != 1:
+            raise D1APIError("D1 转发补录去重后未能读取样本")
+        duplicate_row = duplicate_rows[0]
+        if (
+            duplicate_row.get("message_json") != sample.to_json()
+            or duplicate_row.get("status") != "reviewed"
+            or duplicate_row.get("label") != "spam"
+        ):
+            raise D1APIError("D1 转发补录去重键冲突，未写入样本")
+        return ManualSpamImportResult(
+            id=_positive_id(duplicate_row.get("id"), "已有转发 Spam 样本"),
+            created=False,
+        )
+
     async def next_group_pending(self) -> StoredSample | None:
         result = await self._query(
             "SELECT * FROM samples WHERE source = 'group' AND status = 'pending' "
@@ -502,6 +564,11 @@ def _online_dedupe_key(sample: SpamSample) -> str:
 def _manual_dedupe_key(text: str) -> str:
     identity = f"v2\0manual\0{text}"
     return "manual:v2:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def _manual_forward_dedupe_key(sample: SpamSample) -> str:
+    identity = f"v2\0manual-forward\0{sample.to_json()}"
+    return "manual-forward:v2:" + hashlib.sha256(identity.encode("utf-8")).hexdigest()
 
 
 def _positive_id(value: Any, name: str) -> int:

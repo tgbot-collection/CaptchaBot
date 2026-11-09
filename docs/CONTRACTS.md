@@ -38,6 +38,7 @@ Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 - Story 013 不修改统一样本 Schema。`ReviewService.notify_pending()` 在 D1 pending 已成功写入后，使用已有 `message.chat_id` 查询群资料：公开群名链接到 `https://t.me/<username>`，私有超级群名链接到基于 `chat_id/message_id` 生成的 `https://t.me/c/<channel>/<message_id>`。查询或链接生成失败时仍发送无链接的审核通知；该查询不得进入规则删除关键路径，也不得记录群标识符或内容。
 - Story 014 规定 `message.date` 始终保存为 UTC ISO 8601 `Z` 时间。Kurigram 返回的无时区 `datetime` 必须先按进程本地时区解释，再转换为 UTC，不能直接附加 UTC 标签。D1 `created_at` 继续使用 Cloudflare 的 UTC `CURRENT_TIMESTAMP`。由 `TZ=Asia/Shanghai` 旧容器写入且与 `created_at` 相差约 8 小时的历史 `message.date` 通过受保护的一次性固定 SQL 回填；其他字段不变。
 - Story 015 增加 `make import-spam-file file=<UTF-8.txt>`，一个文件代表一条完整、多行的人工确认 Spam。补录样本固定为 `source=manual/status=reviewed/label=spam`，`reviewed_by=SPAM_ADMIN_ID`，未知 Telegram 字段为 null。内部换行和原始 Unicode 保留，只移除文件末尾 CR/LF。相同 reviewed/spam 文本幂等返回原 ID；相同文本若存在 pending 或非 Spam 标签则拒绝，不能静默覆盖。
+- Story 016 增加管理员私聊转发入口。只有 `SPAM_ADMIN_ID` 的真实 `forward_origin` 消息可直接写为 `source=manual/status=reviewed/label=spam`；管理员只写入 `reviewed_by`，样本 `user` 必须从 `MessageOriginUser/HiddenUser/Chat/Channel` 的可用来源字段构造。已知来源 ID 等于管理员 ID 时拒绝保存。原始 text/caption、entities、媒体类型和来源时间保留；纯媒体无 caption、非管理员和群内转发不写入。相同结构化转发按 canonical 样本 JSON hash 幂等，不查询 Bio、不推理、不发送二次审核通知，也不触发删除、封禁或禁言。
 
 ## D1 存储约定
 Story 002 已确定 `samples` 字段：`id`（整数主键）、`schema_version`、`source`、`message_json`、`text`、`status`（`pending`/`reviewed`）、`label`（NULL/`spam`/`ham`）、`model_version`、`prediction`、`prediction_score`、`created_at`、`reviewed_at`、`reviewed_by`、`review_chat_id`、`review_message_id`、`dedupe_key`。命中规则和可选 Bio 存在完整样本 JSON `message_json` 中。数据库通过 CHECK 约束强制 pending/NULL 与 reviewed/人工标签配对，并为状态/标签、reviewed 导出和唯一去重键建立索引。
@@ -54,6 +55,7 @@ Story 002 的公共存储接口：
 - `D1Client.export_reviewed(page_size=200) -> list[StoredSample]`：使用 `id` keyset 分页并按 `id ASC` 稳定排序。
 - `D1Client.label_samples(sample_ids, label, admin_id) -> list[int]`：人工运维专用的原子批量标注/纠正接口；更新 `status/label/reviewed_at/reviewed_by` 和统一样本 JSON，返回已更新 ID。任一 ID 不存在时抛出 `D1NotFoundError` 且整批不变。
 - `D1Client.import_manual_spam(text, admin_id) -> ManualSpamImportResult`：从人工确认的完整文本创建 manual/reviewed/spam 样本；返回 ID 和是否新建。相同 reviewed/spam 文本幂等，冲突状态抛出 `D1APIError`。
+- `D1Client.import_forwarded_spam(sample, admin_id) -> ManualSpamImportResult`：保存由 `sample_from_admin_forward()` 构造的结构化 manual/reviewed/spam 样本；管理员与已知原作者 ID 相同时拒绝，重复结构化转发幂等返回原 ID。
 
 D1 Query REST 客户端使用参数化 SQL、5 秒默认超时、最多 2 次默认重试和默认 4 并发上限。只重试网络/超时、429 和有限的 5xx；同时校验 Cloudflare 顶层 `success` 与每条 SQL 的 `result[].success`。异常文本不包含 Token 或 SQL 参数。
 

@@ -247,6 +247,64 @@ def sample_from_message(
     )
 
 
+def sample_from_admin_forward(message: Any) -> SpamSample:
+    """将管理员转发的消息转换为人工确认 Spam，不把转发者当成原作者。"""
+
+    origin = getattr(message, "forward_origin", None)
+    if origin is None:
+        raise ValueError("消息不是 Telegram 转发消息")
+
+    origin_type = _enum_value(getattr(origin, "type", None)) or "unknown"
+    origin_user = getattr(origin, "sender_user", None)
+    origin_chat = getattr(origin, "sender_chat", None) or getattr(origin, "chat", None)
+
+    if origin_user is not None:
+        user = UserSnapshot(
+            id=getattr(origin_user, "id", None),
+            username=getattr(origin_user, "username", None),
+            first_name=getattr(origin_user, "first_name", None),
+            last_name=getattr(origin_user, "last_name", None),
+            is_premium=getattr(origin_user, "is_premium", None),
+        )
+    elif origin_chat is not None:
+        user = UserSnapshot(
+            id=getattr(origin_chat, "id", None),
+            username=getattr(origin_chat, "username", None),
+            first_name=getattr(origin_chat, "title", None),
+            last_name=getattr(origin, "author_signature", None),
+        )
+    else:
+        user = UserSnapshot(first_name=getattr(origin, "sender_user_name", None))
+
+    text = getattr(message, "text", None)
+    caption = getattr(message, "caption", None)
+    if not ((isinstance(text, str) and text.strip()) or (isinstance(caption, str) and caption.strip())):
+        raise ValueError("转发消息必须包含 text 或 caption")
+
+    via_bot = getattr(message, "via_bot", None)
+    entity_source = getattr(message, "entities", None) if text is not None else getattr(message, "caption_entities", None)
+    return SpamSample(
+        source="manual",
+        message=MessageSnapshot(
+            chat_id=getattr(origin_chat, "id", None),
+            message_id=getattr(origin, "message_id", None),
+            date=_utc_iso(getattr(origin, "date", None)),
+            text=text if text is not None else "",
+            caption=caption,
+            entities=_snapshot_entities(entity_source),
+            media_type=_enum_value(getattr(message, "media", None)),
+        ),
+        user=user,
+        via_bot=ViaBotSnapshot(
+            id=getattr(via_bot, "id", None),
+            username=getattr(via_bot, "username", None),
+        ),
+        matched_rule=f"admin_forward:{origin_type}",
+        label="spam",
+        status="reviewed",
+    )
+
+
 def sample_from_stored_dict(value: dict[str, Any]) -> SpamSample:
     """只重建审核展示所需的已存快照，不伪造 Pyrogram Message。"""
     message = value["message"]

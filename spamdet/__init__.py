@@ -11,6 +11,7 @@ from .schemas import (
     SpamSample,
     UserSnapshot,
     ViaBotSnapshot,
+    sample_from_admin_forward,
     sample_from_message,
     sample_from_seed_text,
 )
@@ -53,6 +54,7 @@ __all__ = [
     "StoredSample",
     "UserSnapshot",
     "ViaBotSnapshot",
+    "sample_from_admin_forward",
     "sample_from_message",
     "sample_from_seed_text",
     "extract_feature_channels",
