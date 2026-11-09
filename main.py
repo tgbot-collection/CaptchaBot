@@ -131,7 +131,7 @@ async def admin_forwarded_spam_handler(client: "Client", message: "types.Message
         result = await spam_d1_client.import_forwarded_spam(sample, actor_id)
     except ValueError as exc:
         logging.info("管理员转发样本未保存（%s）", type(exc).__name__)
-        await message.reply_text("转发消息必须包含可保存的文字或 caption。")
+        await message.reply_text("转发消息必须包含可保存的文字、caption 或 Checklist 内容。")
         return
     except D1Error as exc:
         logging.warning("管理员转发 Spam 写入失败（%s）", type(exc).__name__)

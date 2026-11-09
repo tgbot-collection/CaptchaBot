@@ -261,6 +261,33 @@ class AdminForwardSpamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(channel_sample.user.username, "source_channel")
         self.assertEqual((channel_sample.user.first_name, channel_sample.user.last_name), ("来源频道", "频道作者"))
 
+    def test_checklist_is_flattened_with_utf16_entity_offsets(self) -> None:
+        message = self.forwarded_message()
+        message.text = None
+        message.caption = None
+        message.media = "checklist"
+        message.checklist = SimpleNamespace(
+            title="标题😀",
+            entities=[SimpleNamespace(type="bold", offset=0, length=4)],
+            tasks=[
+                SimpleNamespace(
+                    text="第一项",
+                    entities=[SimpleNamespace(type="bold", offset=0, length=3)],
+                ),
+                SimpleNamespace(
+                    text="https://t.me/+example",
+                    entities=[SimpleNamespace(type="url", offset=0, length=21)],
+                ),
+            ],
+        )
+
+        sample = sample_from_admin_forward(message)
+
+        self.assertEqual(sample.message.text, "标题😀\n第一项\nhttps://t.me/+example")
+        self.assertEqual(sample.message.media_type, "checklist")
+        self.assertEqual([entity.offset for entity in sample.message.entities], [0, 5, 9])
+        self.assertEqual([entity.type for entity in sample.message.entities], ["bold", "bold", "url"])
+
 
 class ModelHandlerTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:

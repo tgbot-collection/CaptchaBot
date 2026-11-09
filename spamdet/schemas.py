@@ -183,14 +183,14 @@ class SpamSample:
         return json.dumps(self.to_dict(), ensure_ascii=False, separators=(",", ":"))
 
 
-def _snapshot_entities(entities: Any) -> tuple[EntitySnapshot, ...]:
+def _snapshot_entities(entities: Any, *, offset_base: int = 0) -> tuple[EntitySnapshot, ...]:
     result: list[EntitySnapshot] = []
     for entity in entities or ():
         user = getattr(entity, "user", None)
         result.append(
             EntitySnapshot(
                 type=_enum_value(getattr(entity, "type", None)) or "unknown",
-                offset=int(getattr(entity, "offset", 0)),
+                offset=offset_base + int(getattr(entity, "offset", 0)),
                 length=int(getattr(entity, "length", 0)),
                 url=getattr(entity, "url", None),
                 user_id=getattr(user, "id", None),
@@ -199,6 +199,37 @@ def _snapshot_entities(entities: Any) -> tuple[EntitySnapshot, ...]:
             )
         )
     return tuple(result)
+
+
+def _utf16_length(value: str) -> int:
+    """返回 Telegram entity offset 使用的 UTF-16 code unit 数。"""
+
+    return len(value.encode("utf-16-le")) // 2
+
+
+def _snapshot_checklist(checklist: Any) -> tuple[str, tuple[EntitySnapshot, ...]]:
+    """按显示顺序展开 Checklist，并把各段 entity offset 映射到合并文本。"""
+
+    if checklist is None:
+        return "", ()
+
+    parts: list[str] = []
+    entities: list[EntitySnapshot] = []
+    current_offset = 0
+    components = [(getattr(checklist, "title", None), getattr(checklist, "entities", None))]
+    components.extend(
+        (getattr(task, "text", None), getattr(task, "entities", None))
+        for task in (getattr(checklist, "tasks", None) or ())
+    )
+    for value, component_entities in components:
+        if not isinstance(value, str) or not value:
+            continue
+        if parts:
+            current_offset += 1  # 分隔各段的换行符占一个 UTF-16 code unit。
+        parts.append(value)
+        entities.extend(_snapshot_entities(component_entities, offset_base=current_offset))
+        current_offset += _utf16_length(value)
+    return "\n".join(parts), tuple(entities)
 
 
 def sample_from_message(
@@ -278,11 +309,21 @@ def sample_from_admin_forward(message: Any) -> SpamSample:
 
     text = getattr(message, "text", None)
     caption = getattr(message, "caption", None)
+    checklist_text, checklist_entities = _snapshot_checklist(getattr(message, "checklist", None))
+    if text is None and caption is None and checklist_text:
+        text = checklist_text
+        entity_snapshots = checklist_entities
+    else:
+        entity_source = (
+            getattr(message, "entities", None)
+            if text is not None
+            else getattr(message, "caption_entities", None)
+        )
+        entity_snapshots = _snapshot_entities(entity_source)
     if not ((isinstance(text, str) and text.strip()) or (isinstance(caption, str) and caption.strip())):
-        raise ValueError("转发消息必须包含 text 或 caption")
+        raise ValueError("转发消息必须包含 text、caption 或 Checklist 文字")
 
     via_bot = getattr(message, "via_bot", None)
-    entity_source = getattr(message, "entities", None) if text is not None else getattr(message, "caption_entities", None)
     return SpamSample(
         source="manual",
         message=MessageSnapshot(
@@ -291,7 +332,7 @@ def sample_from_admin_forward(message: Any) -> SpamSample:
             date=_utc_iso(getattr(origin, "date", None)),
             text=text if text is not None else "",
             caption=caption,
-            entities=_snapshot_entities(entity_source),
+            entities=entity_snapshots,
             media_type=_enum_value(getattr(message, "media", None)),
         ),
         user=user,
