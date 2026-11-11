@@ -381,6 +381,9 @@ class D1ConfigTests(unittest.TestCase):
             ),
             (100, 2, 2.0, 300.0, 1000, 5.0),
         )
+        self.assertFalse(defaults.review_dedupe_enabled)
+        self.assertEqual(defaults.review_dedupe_ttl_seconds, 604800)
+        self.assertEqual(defaults.review_dedupe_lease_seconds, 60)
         configured = SpamLearningConfig.from_env(
             {
                 "SPAM_CAPTURE_QUEUE_SIZE": "7",
@@ -390,6 +393,9 @@ class D1ConfigTests(unittest.TestCase):
                 "SPAM_BIO_CACHE_TTL_SECONDS": "60",
                 "SPAM_BIO_CACHE_SIZE": "25",
                 "SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS": "4",
+                "SPAM_REVIEW_DEDUPE_ENABLED": "true",
+                "SPAM_REVIEW_DEDUPE_TTL_SECONDS": "900",
+                "SPAM_REVIEW_DEDUPE_LEASE_SECONDS": "30",
             }
         )
         self.assertEqual(configured.capture_queue_size, 7)
@@ -399,12 +405,22 @@ class D1ConfigTests(unittest.TestCase):
         self.assertEqual(configured.bio_cache_ttl_seconds, 60.0)
         self.assertEqual(configured.bio_cache_size, 25)
         self.assertEqual(configured.capture_shutdown_timeout_seconds, 4.0)
+        self.assertTrue(configured.review_dedupe_enabled)
+        self.assertEqual(configured.review_dedupe_ttl_seconds, 900)
+        self.assertEqual(configured.review_dedupe_lease_seconds, 30)
 
     def test_capture_config_rejects_non_positive_values(self) -> None:
         with self.assertRaisesRegex(ConfigError, "SPAM_CAPTURE_QUEUE_SIZE"):
             SpamLearningConfig.from_env({"SPAM_CAPTURE_QUEUE_SIZE": "0"})
         with self.assertRaisesRegex(ConfigError, "SPAM_INFERENCE_CONCURRENCY"):
             SpamLearningConfig.from_env({"SPAM_INFERENCE_CONCURRENCY": "0"})
+        with self.assertRaisesRegex(ConfigError, "SPAM_REVIEW_DEDUPE_TTL_SECONDS"):
+            SpamLearningConfig.from_env(
+                {
+                    "SPAM_REVIEW_DEDUPE_TTL_SECONDS": "10",
+                    "SPAM_REVIEW_DEDUPE_LEASE_SECONDS": "20",
+                }
+            )
 
     def test_d1_config_can_be_required_while_feature_is_disabled(self) -> None:
         config = SpamLearningConfig.from_env(

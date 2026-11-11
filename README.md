@@ -39,6 +39,16 @@ Spam 学习功能已接入现有规则删除路径，功能默认关闭：
 * `SPAM_BIO_CACHE_SIZE`：Bio 缓存最大条目数，默认 `1000`
 * `SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS`：关停排空超时，默认 `5.0`
 * `SPAM_CAPTURE_GROUPS`：默认不记录普通群消息；`all` 记录所有可见群，或用 `-100123,-100456` 只记录指定群。
+* `SPAM_REVIEW_DEDUPE_ENABLED`：默认 `false`；开启后合并同一用户、相同原始内容的规则审核。
+* `SPAM_REVIEW_DEDUPE_TTL_SECONDS`：重复计数在最后一次出现后的保留时间，默认 `604800`（7 天）。
+* `SPAM_REVIEW_DEDUPE_LEASE_SECONDS`：首次处理异常退出后的接管租约，默认 `60`。
+
+开启 `SPAM_REVIEW_DEDUPE_ENABLED` 后，规则消息仍会逐条立即删除。只有第一条进入 Bio、模型、D1
+和审核通知；同一用户后续发送完全相同的原始 text/caption 时，只在 Redis Hash 中原子累计次数，
+不会新增 D1 记录或审核通知。通知发送时和点击审核按钮后会显示可取得的出现次数。指纹使用
+SHA-256，不把消息原文或明文用户 ID 放进 Redis key；计数默认在最后一次出现 7 天后过期。
+Redis 不可用时降级为原有逐条审核流程，避免静默丢失待审核样本。普通 `group/pending` 和管理员
+转发的 `manual/reviewed/spam` 不参与合并。
 
 普通群消息只采集有可提取文字、未命中规则的消息；D1 保存为未标注的 `group/pending`，不会自动当作 Ham。管理员在私聊发送 `/review`，每次领取一条并用 Spam/Not Spam 按钮审核。普通消息不主动推送通知；Handler 为既有 Bio 规则取得用户资料后，会复用该 Bio 写入样本，不增加 Telegram 请求。D1 使用 Story 010 的全新 Schema v2，启用前应在确认目标后重建数据库并执行 `python -m spamdet.d1_migrate --apply`，不支持旧表升级或记录回填。
 

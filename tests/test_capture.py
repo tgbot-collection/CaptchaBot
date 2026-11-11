@@ -6,6 +6,7 @@ import unittest
 from dataclasses import replace
 
 from spamdet.capture import CaptureService
+from spamdet.dedupe import OccurrenceReservation
 from spamdet.schemas import MessageSnapshot, SpamSample, UserSnapshot
 
 
@@ -97,7 +98,114 @@ class RecordingInference:
         )
 
 
+class RecordingDeduplicator:
+    def __init__(self, *, duplicate_after_first: bool = True) -> None:
+        self.duplicate_after_first = duplicate_after_first
+        self.reservations = 0
+        self.saved: list[tuple[OccurrenceReservation, int]] = []
+        self.retryable: list[OccurrenceReservation] = []
+
+    async def reserve(self, sample: SpamSample) -> OccurrenceReservation:
+        self.reservations += 1
+        is_leader = self.reservations == 1 or not self.duplicate_after_first
+        return OccurrenceReservation(
+            key="dedupe-key",
+            owner=f"owner-{self.reservations}" if is_leader else None,
+            is_leader=is_leader,
+            count=self.reservations,
+        )
+
+    async def mark_saved(self, reservation: OccurrenceReservation, sample_id: int) -> bool:
+        self.saved.append((reservation, sample_id))
+        return True
+
+    async def mark_retryable(self, reservation: OccurrenceReservation) -> bool:
+        self.retryable.append(reservation)
+        return True
+
+
+class FailingDeduplicator(RecordingDeduplicator):
+    async def reserve(self, sample: SpamSample) -> OccurrenceReservation:
+        raise RuntimeError("Redis failed")
+
+
 class CaptureServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_redis_failure_falls_back_to_original_capture_flow(self) -> None:
+        store, notifier = RecordingStore(), RecordingNotifier()
+        service = CaptureService(
+            FakeTelegram(),
+            store,
+            notifier,
+            deduplicator=FailingDeduplicator(),
+            worker_count=1,
+        )
+        service.start()
+        try:
+            self.assertTrue(service.submit(make_sample(1)))
+            await service.wait_until_idle()
+        finally:
+            await service.aclose()
+
+        self.assertEqual(len(store.samples), 1)
+        self.assertEqual(len(notifier.calls), 1)
+
+    async def test_duplicate_rule_skips_bio_inference_d1_and_notification(self) -> None:
+        telegram, store = FakeTelegram(), RecordingStore()
+        notifier, inference = RecordingNotifier(), RecordingInference()
+        deduplicator = RecordingDeduplicator()
+        service = CaptureService(
+            telegram,
+            store,
+            notifier,
+            inference=inference,
+            deduplicator=deduplicator,
+            worker_count=1,
+        )
+        service.start()
+        try:
+            self.assertTrue(service.submit(make_sample(1)))
+            self.assertTrue(service.submit(make_sample(2)))
+            await service.wait_until_idle()
+        finally:
+            await service.aclose()
+
+        self.assertEqual(telegram.calls, 1)
+        self.assertEqual(len(inference.calls), 1)
+        self.assertEqual(len(store.samples), 1)
+        self.assertEqual(len(notifier.calls), 1)
+        self.assertEqual(deduplicator.saved[0][1], 1)
+
+    async def test_d1_failure_marks_reservation_retryable(self) -> None:
+        deduplicator = RecordingDeduplicator(duplicate_after_first=False)
+        service = CaptureService(
+            FakeTelegram(),
+            FailingStore(),
+            deduplicator=deduplicator,
+            worker_count=1,
+        )
+        service.start()
+        try:
+            self.assertTrue(service.submit(make_sample(1)))
+            await service.wait_until_idle()
+        finally:
+            await service.aclose()
+
+        self.assertEqual(len(deduplicator.retryable), 1)
+
+    async def test_group_sample_bypasses_rule_deduplicator(self) -> None:
+        deduplicator = RecordingDeduplicator()
+        store = RecordingStore()
+        service = CaptureService(FakeTelegram(), store, deduplicator=deduplicator, worker_count=1)
+        service.start()
+        try:
+            self.assertTrue(service.submit(replace(make_sample(7), source="group", matched_rule=None)))
+            await service.wait_until_idle()
+        finally:
+            await service.aclose()
+
+        self.assertEqual(deduplicator.reservations, 0)
+        self.assertEqual(len(store.samples), 1)
+
     async def test_group_sample_writes_without_bio_lookup_or_push(self) -> None:
         telegram, store, notifier = FakeTelegram(), RecordingStore(), RecordingNotifier()
         service = CaptureService(telegram, store, notifier)

@@ -9,6 +9,7 @@ import logging
 import time
 from typing import Any, Protocol
 
+from .dedupe import OccurrenceReservation
 from .schemas import ModelSuggestion, SpamSample
 
 
@@ -24,6 +25,14 @@ class SampleInference(Protocol):
     async def enrich(self, sample: SpamSample) -> SpamSample: ...
 
 
+class OccurrenceDeduplicator(Protocol):
+    async def reserve(self, sample: SpamSample) -> OccurrenceReservation | None: ...
+
+    async def mark_saved(self, reservation: OccurrenceReservation, sample_id: int) -> bool: ...
+
+    async def mark_retryable(self, reservation: OccurrenceReservation) -> bool: ...
+
+
 class CaptureService:
     """在删除关键路径之外补充 Bio 并写入 pending 样本。"""
 
@@ -34,6 +43,7 @@ class CaptureService:
         notifier: PendingSampleNotifier | None = None,
         *,
         inference: SampleInference | None = None,
+        deduplicator: OccurrenceDeduplicator | None = None,
         queue_size: int = 100,
         worker_count: int = 2,
         bio_timeout: float = 2.0,
@@ -58,6 +68,7 @@ class CaptureService:
         self._store = store
         self._notifier = notifier
         self._inference = inference
+        self._deduplicator = deduplicator
         self._queue: asyncio.Queue[SpamSample] = asyncio.Queue(maxsize=queue_size)
         self._worker_count = worker_count
         self._bio_timeout = bio_timeout
@@ -114,10 +125,26 @@ class CaptureService:
     async def _worker(self) -> None:
         while True:
             sample = await self._queue.get()
+            reservation: OccurrenceReservation | None = None
             try:
+                if self._deduplicator is not None and sample.source == "rule":
+                    try:
+                        reservation = await self._deduplicator.reserve(sample)
+                    except Exception as exc:
+                        # Redis 故障时沿用原流程，宁可重复审核也不能静默丢样本。
+                        logging.warning("Spam 重复审核计数失败（%s）", type(exc).__name__)
+                    if reservation is not None and not reservation.is_leader:
+                        logging.info("Spam 重复审核已合并，出现次数=%s", reservation.count)
+                        continue
                 enriched = await self._with_bio(sample) if sample.source == "rule" else sample
                 enriched = await self._with_prediction(enriched)
                 sample_id = await self._store.create_pending(enriched)
+                if reservation is not None:
+                    try:
+                        if not await self._deduplicator.mark_saved(reservation, sample_id):
+                            logging.warning("Spam 重复审核保存状态未更新（租约已变化）")
+                    except Exception as exc:
+                        logging.warning("Spam 重复审核保存状态更新失败（%s）", type(exc).__name__)
                 if self._notifier is not None and sample.source == "rule":
                     try:
                         await self._notifier.notify_pending(sample_id, enriched)
@@ -127,6 +154,12 @@ class CaptureService:
             except Exception as exc:
                 # 不记录异常原文，避免上游库将消息或私密标识符带入日志。
                 logging.warning("Spam 样本后台采集失败（%s）", type(exc).__name__)
+                if reservation is not None and reservation.is_leader:
+                    try:
+                        if not await self._deduplicator.mark_retryable(reservation):
+                            logging.warning("Spam 重复审核重试状态未更新（租约已变化）")
+                    except Exception as retry_exc:
+                        logging.warning("Spam 重复审核重试状态更新失败（%s）", type(retry_exc).__name__)
             finally:
                 self._queue.task_done()
 

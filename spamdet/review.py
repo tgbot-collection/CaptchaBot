@@ -11,7 +11,7 @@ from urllib.parse import quote
 from pyrogram import enums, types
 
 from .d1 import D1Error, ReviewOutcome, SampleStats, StoredSample
-from .schemas import ModelSuggestion, SpamSample
+from .schemas import ModelSuggestion, SpamSample, sample_from_stored_dict
 
 
 _CALLBACK_RE = re.compile(r"^sd:([1-9]\d*):([sh])$")
@@ -30,6 +30,10 @@ class ReviewStore(Protocol):
     async def stats(self) -> SampleStats: ...
 
     async def next_group_pending(self) -> StoredSample | None: ...
+
+
+class OccurrenceCounter(Protocol):
+    async def count(self, sample: SpamSample) -> int | None: ...
 
 
 def _safe(value: str | None, limit: int, *, empty: str = "无") -> str:
@@ -97,14 +101,14 @@ def render_pending_notification(
     *,
     group_title: str | None = None,
     group_link: str | None = None,
+    occurrence_count: int | None = None,
 ) -> str:
     """生成只用于管理员私聊的 HTML 文本。"""
 
     content = sample.message.text or sample.message.caption
     full_name = " ".join(part for part in (sample.user.first_name, sample.user.last_name) if part)
     username = f"@{sample.user.username}" if sample.user.username else None
-    return "\n".join(
-        (
+    fields = [
             f"<b>Spam 数据审核 #{sample_id}</b>",
             "",
             f"<b>消息</b>\n{_safe(content, _MESSAGE_LIMIT, empty='[无文本内容]')}",
@@ -115,8 +119,10 @@ def render_pending_notification(
             f"<b>来源</b>：{'普通群消息' if sample.source == 'group' else '规则命中'}",
             f"<b>命中规则</b>：{_safe(sample.matched_rule, _FIELD_LIMIT)}",
             f"<b>模型建议</b>：{_model_text(sample.model)}",
-        )
-    )
+    ]
+    if occurrence_count is not None:
+        fields.append(f"<b>出现次数</b>：{occurrence_count}")
+    return "\n".join(fields)
 
 
 def render_dataset_stats(stats: SampleStats) -> str:
@@ -133,12 +139,20 @@ def render_dataset_stats(stats: SampleStats) -> str:
 class ReviewService:
     """发送通知并将单管理员的审核原子写入 D1。"""
 
-    def __init__(self, telegram_client: Any, store: ReviewStore, *, admin_id: int) -> None:
+    def __init__(
+        self,
+        telegram_client: Any,
+        store: ReviewStore,
+        *,
+        admin_id: int,
+        occurrence_counter: OccurrenceCounter | None = None,
+    ) -> None:
         if admin_id <= 0:
             raise ValueError("admin_id 必须是正整数")
         self._telegram = telegram_client
         self._store = store
         self._admin_id = admin_id
+        self._occurrence_counter = occurrence_counter
 
     @property
     def admin_id(self) -> int:
@@ -149,6 +163,7 @@ class ReviewService:
         if stored.status != "pending" or stored.review_message_id is not None:
             return
         group_title, group_link = await self._resolve_group(sample)
+        occurrence_count = await self._get_occurrence_count(sample)
         keyboard = types.InlineKeyboardMarkup(
             [
                 [
@@ -164,6 +179,7 @@ class ReviewService:
                 sample,
                 group_title=group_title,
                 group_link=group_link,
+                occurrence_count=occurrence_count,
             ),
             parse_mode=enums.ParseMode.HTML,
             link_preview_options=types.LinkPreviewOptions(is_disabled=True),
@@ -187,7 +203,6 @@ class ReviewService:
         stored = await self._store.next_group_pending()
         if stored is None:
             return False
-        from .schemas import sample_from_stored_dict
         await self.notify_pending(stored.id, sample_from_stored_dict(stored.sample))
         return True
 
@@ -224,6 +239,19 @@ class ReviewService:
         if outcome == ReviewOutcome.ALREADY_REVIEWED:
             suffix += "（此样本已审核，未覆盖原标签）"
         try:
+            stored_for_count = (
+                stored
+                if outcome == ReviewOutcome.ALREADY_REVIEWED
+                else await self._store.get(sample_id)
+            )
+            occurrence_count = await self._get_occurrence_count(
+                sample_from_stored_dict(stored_for_count.sample)
+            )
+            if occurrence_count is not None:
+                suffix += f"\n出现次数：{occurrence_count}"
+        except Exception as exc:
+            logging.warning("Spam 审核出现次数读取失败（%s）", type(exc).__name__)
+        try:
             original = str(getattr(callback_query.message, "text", "") or "Spam 数据审核")
             await callback_query.message.edit_text(
                 original + suffix,
@@ -237,6 +265,15 @@ class ReviewService:
 
     async def dataset_stats_text(self) -> str:
         return render_dataset_stats(await self._store.stats())
+
+    async def _get_occurrence_count(self, sample: SpamSample) -> int | None:
+        if self._occurrence_counter is None:
+            return None
+        try:
+            return await self._occurrence_counter.count(sample)
+        except Exception as exc:
+            logging.warning("Spam 重复审核次数读取失败（%s）", type(exc).__name__)
+            return None
 
     async def _report_failure(self, callback_query: Any) -> None:
         try:

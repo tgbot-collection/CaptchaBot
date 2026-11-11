@@ -40,6 +40,7 @@ Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 - Story 015 增加 `make import-spam-file file=<UTF-8.txt>`，一个文件代表一条完整、多行的人工确认 Spam。补录样本固定为 `source=manual/status=reviewed/label=spam`，`reviewed_by=SPAM_ADMIN_ID`，未知 Telegram 字段为 null。内部换行和原始 Unicode 保留，只移除文件末尾 CR/LF。相同 reviewed/spam 文本幂等返回原 ID；相同文本若存在 pending 或非 Spam 标签则拒绝，不能静默覆盖。
 - Story 016 增加管理员私聊转发入口。只有 `SPAM_ADMIN_ID` 的真实 `forward_origin` 消息可直接写为 `source=manual/status=reviewed/label=spam`；管理员只写入 `reviewed_by`，样本 `user` 必须从 `MessageOriginUser/HiddenUser/Chat/Channel` 的可用来源字段构造。已知来源 ID 等于管理员 ID 时拒绝保存。原始 text/caption、entities、媒体类型和来源时间保留。无 text/caption 时，按公开 Kurigram 字段提取 Checklist、Poll、Contact、Venue/带地址的 Location、Game、Invoice、Giveaway/GiveawayWinners、Story、WebPage，以及 Audio/Document/Video/Animation/Sticker 的可见文字或文件名，按原顺序以换行合并，并将各段 entity offset 重映射为合并文本的 UTF-16 code unit offset。Contact 的隐藏 vCard、文件 ID、坐标等非必要元数据不进入训练文本；Photo、Voice、VideoNote、Dice、无文字 PaidMedia 不伪造占位正文。非管理员和群内转发不写入。相同结构化转发按 canonical 样本 JSON hash 幂等，不查询 Bio、不推理、不发送二次审核通知，也不触发删除、封禁或禁言。
 - Story 017 将上述可见内容解析独立为 `extract_message_content(message) -> ExtractedMessageContent`。返回值包含持久化用 `text/caption/entities`、规则匹配用 `search_text` 和来源 `source`；caption 继续独立保存，不伪装为 text。该函数只同步读取现有 `Message`，不访问网络。`sample_from_message()`、`sample_from_admin_forward()` 和群 Handler 共用该接口；群 Handler 在 Sticker/Bio 请求前提取一次，并将同一结果用于 `BLACKLIST_MESSAGE`、删除前快照和普通群采集。结构化内容命中既有关键词时仍为 `rule/pending` 并立即删除；未命中时仅在群配置允许时为 `group/pending`；只有 Story 016 的管理员私聊转发是 `manual/reviewed/spam`。
+- Story 018 增加默认关闭的规则审核聚合。启用 `SPAM_REVIEW_DEDUPE_ENABLED` 后，`source=rule` 且有用户 ID、可见文字的样本，在 `CaptureService` worker 开始处按“用户 ID + 原始 text（为空时 caption）”计算带版本 canonical JSON SHA-256。首次出现继续执行 Bio、模型、D1 pending 和单条通知；重复出现只用 Redis Lua 原子累加 Hash 中的 `count`，不查询 Bio、不推理、不访问 D1、不发送新通知。不同用户、不同原始 Unicode、`group` 和 `manual` 均不合并。Redis key 不含明文用户 ID 或内容；默认滑动 TTL 为 604800 秒，处理租约为 60 秒。D1 写入失败时保留次数并允许后续接管重试；Redis 故障时降级为原逐条审核流程。次数不进入统一样本或 D1 Schema，通知发送及审核完成时读取 Redis 显示可取得的最新值。
 
 ## D1 存储约定
 Story 002 已确定 `samples` 字段：`id`（整数主键）、`schema_version`、`source`、`message_json`、`text`、`status`（`pending`/`reviewed`）、`label`（NULL/`spam`/`ham`）、`model_version`、`prediction`、`prediction_score`、`created_at`、`reviewed_at`、`reviewed_by`、`review_chat_id`、`review_message_id`、`dedupe_key`。命中规则和可选 Bio 存在完整样本 JSON `message_json` 中。数据库通过 CHECK 约束强制 pending/NULL 与 reviewed/人工标签配对，并为状态/标签、reviewed 导出和唯一去重键建立索引。
@@ -136,6 +137,7 @@ Story 007 的离线重训和模型发布约定：
 - D1 写入失败：记录脱敏错误，不发送指向不存在记录的审核按钮；现有规则删除不受影响。
 - Bio 查询失败：存 `bio=null/bio_state=unavailable`，不能拖慢删除。
 - D1 写入成功但 Telegram 通知失败：记录仍是 pending；以后可人工补偿。
+- Redis 审核聚合失败：记录脱敏异常并沿用原有 D1/通知流程；不能因为去重依赖故障而静默丢弃样本。
 - 审核通知读取群资料失败：显示无链接的“未知群组”并继续发送通知；不能回滚或丢弃已写入的 pending。
 - 模型失败：记为 `unavailable`，继续采集和审核。
 - 回调失败：按钮保持可重试，不能提前显示成功。

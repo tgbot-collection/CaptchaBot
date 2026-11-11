@@ -35,6 +35,7 @@
 15. `015-import-spam-file.md`：从一个 UTF-8 文本文件补录一条人工确认的 D1 Spam 样本。
 16. `016-admin-forward-spam.md`：管理员私聊转发消息时直接保存结构化人工 Spam，原作者来自转发来源。
 17. `017-shared-content-extraction.md`：独立统一的消息内容提取，并供群规则、群采集和管理员转发共用。
+18. `018-review-dedupe.md`：同一用户、相同原始内容的规则消息只审核一次，Redis 保留出现次数。
 
 ## V1 明确不做
 AI 自动删除/封禁、头像识别、对所有未命中关键词消息的 Shadow Mode、在线自动学习、定时重训、Cloudflare Worker 网关、外部 LLM API。

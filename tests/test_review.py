@@ -79,6 +79,7 @@ class FakeStore:
             label=self.existing_label,
             status=self.status,
             review_message_id=self.review_message_id,
+            sample=make_sample().to_dict(),
         )
 
     async def stats(self) -> SampleStats:
@@ -128,7 +129,34 @@ class FakeCallback:
         self.answers.append((text, kwargs))
 
 
+class FakeOccurrenceCounter:
+    def __init__(self, count: int = 1) -> None:
+        self.value = count
+        self.samples = []
+
+    async def count(self, sample: SpamSample) -> int:
+        self.samples.append(sample)
+        return self.value
+
+
 class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
+    async def test_notification_and_review_result_show_occurrence_count(self) -> None:
+        telegram, store = FakeTelegram(), FakeStore()
+        counter = FakeOccurrenceCounter(8)
+        service = ReviewService(
+            telegram,
+            store,
+            admin_id=ADMIN_ID,
+            occurrence_counter=counter,
+        )
+
+        await service.notify_pending(7, make_sample())
+        callback = FakeCallback("sd:7:s")
+        await service.handle_callback(callback)
+
+        self.assertIn("<b>出现次数</b>：8", telegram.sent[0][0][1])
+        self.assertIn("出现次数：8", callback.message.edits[0][0])
+
     async def test_admin_pulls_group_sample_for_manual_review(self) -> None:
         telegram = FakeTelegram()
         store = FakeStore()

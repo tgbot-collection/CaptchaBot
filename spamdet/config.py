@@ -105,6 +105,9 @@ class SpamLearningConfig:
     bio_cache_size: int = 1000
     capture_shutdown_timeout_seconds: float = 5.0
     record_groups: frozenset[int] | None = None
+    review_dedupe_enabled: bool = False
+    review_dedupe_ttl_seconds: int = 604800
+    review_dedupe_lease_seconds: int = 60
 
     def records_group(self, chat_id: int | None) -> bool:
         return self.enabled and chat_id is not None and chat_id < 0 and (
@@ -131,6 +134,21 @@ class SpamLearningConfig:
             d1_api_token=_optional_value(values.get("D1_API_TOKEN")),
             model_path=Path(model_path_value),
             record_groups=_parse_record_groups(values.get("SPAM_CAPTURE_GROUPS")),
+            review_dedupe_enabled=_parse_bool(
+                "SPAM_REVIEW_DEDUPE_ENABLED",
+                values.get("SPAM_REVIEW_DEDUPE_ENABLED"),
+                default=False,
+            ),
+            review_dedupe_ttl_seconds=_parse_positive_int(
+                "SPAM_REVIEW_DEDUPE_TTL_SECONDS",
+                values.get("SPAM_REVIEW_DEDUPE_TTL_SECONDS"),
+                default=604800,
+            ),
+            review_dedupe_lease_seconds=_parse_positive_int(
+                "SPAM_REVIEW_DEDUPE_LEASE_SECONDS",
+                values.get("SPAM_REVIEW_DEDUPE_LEASE_SECONDS"),
+                default=60,
+            ),
             capture_queue_size=_parse_positive_int(
                 "SPAM_CAPTURE_QUEUE_SIZE", values.get("SPAM_CAPTURE_QUEUE_SIZE"), default=100
             ),
@@ -159,6 +177,10 @@ class SpamLearningConfig:
         return config
 
     def validate(self) -> None:
+        if self.review_dedupe_ttl_seconds < self.review_dedupe_lease_seconds:
+            raise ConfigError(
+                "SPAM_REVIEW_DEDUPE_TTL_SECONDS 不能小于 SPAM_REVIEW_DEDUPE_LEASE_SECONDS"
+            )
         if not self.enabled:
             return
 

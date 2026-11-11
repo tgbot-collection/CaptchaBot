@@ -19,5 +19,6 @@
 - [x] 015 — 从文本文件补录人工 Spam · [Notes](notes/015-notes.md) · 已完成
 - [x] 016 — 管理员转发消息直接标记 Spam · [Notes](notes/016-notes.md) · 已完成
 - [x] 017 — 共享消息内容提取 · [Notes](notes/017-notes.md) · 已完成
+- [x] 018 — 相同用户相同内容合并审核 · [Notes](notes/018-notes.md) · 已完成
 
 这里仅记录状态；真实验证方式/结果、决策、修改文件、风险和 commit hash 必须写入对应 Notes。每次新会话先阅读已完成的 Notes。

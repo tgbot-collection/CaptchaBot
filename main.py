@@ -28,6 +28,7 @@ from spamdet import (
     ExtractedMessageContent,
     InferenceService,
     ReviewService,
+    RedisOccurrenceStore,
     SpamLearningConfig,
     extract_message_content,
     sample_from_admin_forward,
@@ -62,6 +63,7 @@ spam_capture_service: CaptureService | None = None
 spam_d1_client: D1Client | None = None
 spam_review_service: ReviewService | None = None
 spam_inference_service: InferenceService | None = None
+spam_occurrence_store: RedisOccurrenceStore | None = None
 
 
 def generate_char():
@@ -311,9 +313,8 @@ async def invalid_queue(gid_uid):
 
 
 async def check_idle_verification():
-    items = await redis_client.keys("*")
     value = None
-    for gid_uid in items:
+    async for gid_uid in redis_client.scan_iter(match="-*,*"):
         await asyncio.sleep(1)
         try:
             value = await redis_client.hgetall(gid_uid)
@@ -566,13 +567,21 @@ async def group_message_preprocess(client: "Client", message: "types.Message"):
 @app.on_start()
 async def startup(client):
     global spam_capture_service, spam_d1_client, spam_review_service, spam_inference_service
+    global spam_occurrence_store
     if spamdet_config.enabled:
         assert spamdet_config.admin_id is not None
         spam_d1_client = D1Client.from_config(spamdet_config)
+        if spamdet_config.review_dedupe_enabled:
+            spam_occurrence_store = RedisOccurrenceStore(
+                redis_client,
+                ttl_seconds=spamdet_config.review_dedupe_ttl_seconds,
+                lease_seconds=spamdet_config.review_dedupe_lease_seconds,
+            )
         spam_review_service = ReviewService(
             client,
             spam_d1_client,
             admin_id=spamdet_config.admin_id,
+            occurrence_counter=spam_occurrence_store,
         )
         spam_inference_service = InferenceService.from_path(
             str(spamdet_config.model_path),
@@ -583,6 +592,7 @@ async def startup(client):
             spam_d1_client,
             spam_review_service,
             inference=spam_inference_service,
+            deduplicator=spam_occurrence_store,
             queue_size=spamdet_config.capture_queue_size,
             worker_count=spamdet_config.capture_workers,
             bio_timeout=spamdet_config.bio_timeout_seconds,
@@ -592,8 +602,9 @@ async def startup(client):
         )
         spam_capture_service.start()
         logging.info(
-            "Spam 规则样本采集已启动，模型可用性=%s",
+            "Spam 规则样本采集已启动，模型可用性=%s，重复审核聚合=%s",
             spam_inference_service.status.available,
+            spamdet_config.review_dedupe_enabled,
         )
     scheduler.add_job(check_idle_verification, "interval", seconds=15)
     scheduler.start()
@@ -603,11 +614,13 @@ async def startup(client):
 @app.on_stop()
 async def shutdown(client):
     global spam_capture_service, spam_d1_client, spam_review_service, spam_inference_service
+    global spam_occurrence_store
     if spam_capture_service is not None:
         await spam_capture_service.aclose()
         spam_capture_service = None
     spam_review_service = None
     spam_inference_service = None
+    spam_occurrence_store = None
     if spam_d1_client is not None:
         await spam_d1_client.aclose()
         spam_d1_client = None

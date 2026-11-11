@@ -3,6 +3,7 @@
 from .config import ConfigError, SpamLearningConfig
 from .capture import CaptureService
 from .content import ExtractedEntity, ExtractedMessageContent, extract_message_content
+from .dedupe import OccurrenceReservation, RedisOccurrenceStore
 from .features import ChannelWeights, FeatureChannels, extract_feature_channels
 from .schemas import (
     SCHEMA_VERSION,
@@ -49,6 +50,8 @@ __all__ = [
     "ModelStatus",
     "LocalPredictor",
     "ModelSuggestion",
+    "OccurrenceReservation",
+    "RedisOccurrenceStore",
     "SpamLearningConfig",
     "SpamSample",
     "ReviewOutcome",
