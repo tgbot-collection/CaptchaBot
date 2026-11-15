@@ -1,10 +1,23 @@
 """Telegram Spam 学习模块的公共基础接口。"""
 
-from .config import ConfigError, SpamLearningConfig
 from .capture import CaptureService
+from .config import ConfigError, SpamLearningConfig
 from .content import ExtractedEntity, ExtractedMessageContent, extract_message_content
+from .d1 import (
+    D1APIError,
+    D1Client,
+    D1Error,
+    D1HTTPError,
+    D1NotFoundError,
+    ReviewOutcome,
+    SampleStats,
+    StoredSample,
+)
 from .dedupe import OccurrenceReservation, RedisOccurrenceStore
 from .features import ChannelWeights, FeatureChannels, extract_feature_channels
+from .inference import InferenceService, ModelStatus, render_model_status
+from .model_loader import LocalPredictor
+from .review import ReviewService, render_dataset_stats, render_pending_notification
 from .schemas import (
     SCHEMA_VERSION,
     EntitySnapshot,
@@ -17,19 +30,6 @@ from .schemas import (
     sample_from_message,
     sample_from_seed_text,
 )
-from .d1 import (
-    D1APIError,
-    D1Client,
-    D1Error,
-    D1HTTPError,
-    D1NotFoundError,
-    ReviewOutcome,
-    SampleStats,
-    StoredSample,
-)
-from .inference import InferenceService, ModelStatus, render_model_status
-from .model_loader import LocalPredictor
-from .review import ReviewService, render_dataset_stats, render_pending_notification
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -69,3 +69,7 @@ __all__ = [
     "render_model_status",
     "render_pending_notification",
 ]
+
+from dotenv import load_dotenv
+
+load_dotenv(verbose=True)
