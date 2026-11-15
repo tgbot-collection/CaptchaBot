@@ -105,18 +105,6 @@ ORDER BY id ASC;
 python -m spamdet.seed_model --input spam.txt --output models/spamdet
 ```
 
-也可以使用 Make 目标；默认值与上面的命令一致：
-
-```shell
-make train-spam-model
-```
-
-需要使用虚拟环境或其他路径时可覆盖变量，例如：
-
-```shell
-make train-spam-model PYTHON=venv/bin/python SPAM_SEED_INPUT=spam.txt SPAM_MODEL_OUTPUT=models/spamdet
-```
-
 训练并立即演示，或单独加载模型演示：
 
 ```shell
@@ -138,14 +126,22 @@ python -m spamdet.seed_model --model models/spamdet --text "测试文本"
 D1 pending 并发送人工审核通知。推理日志只记录 decision 和耗时，不记录消息原文、Bio
 或最近样本。
 
-正式 Docker 镜像在构建阶段执行 `make train-spam-model`，从仓库内的 `spam.txt` 生成
+Docker 镜像在构建阶段直接调用 `spamdet.seed_model`，从仓库内的 `spam.txt` 生成
 确定性初始相似度模型，并将产物复制到镜像内的
 `/CaptchaBot/models/spamdet`。镜像默认将 `SPAM_MODEL_PATH` 指向该目录，因此运行时
 不需要模型 bind mount，也不会下载或在线训练模型。更换 `spam.txt` 后必须重新构建镜像。
 
 ## 人工审核数据重训
 
-重训将导出、候选构建和批准拆成三个显式阶段。format v2 JSONL 包含人工审核的消息、Bio、
+加载 D1 环境变量后，可用一个 Make 命令导出数据并构建候选：
+
+```sh
+make retrain-spam-model PYTHON=venv/bin/python CLASSIFIER=1
+```
+
+省略 `CLASSIFIER=1` 时构建相似度候选。批准和发布在检查评估结果后单独进行。以下为分步 Python CLI 用法。
+
+format v2 JSONL 包含人工审核的消息、Bio、
 显示名称和不可逆用户分组摘要，
 只能保存在受控本地目录；仓库默认忽略 `local/`。导出只读取 D1 中 `status=reviewed` 且标签为
 `spam`/`ham` 的记录，并与 `spam.txt` 合并：
@@ -193,10 +189,6 @@ python -m spamdet.retrain approve \
 `models/releases/<model-version>` 并重启；回滚时改回上一个 release 并重启。二分类
 `spam`/`ham` 仍只是管理员建议，分数是未校准 Spam 分数，不能触发删除、封禁或禁言。
 
-等价 Make 入口为 `make export-spam-dataset`、`make build-spam-candidate` 和
-`make approve-spam-candidate CANDIDATE=... APPROVED_BY=...`。分类器和回归参数建议直接使用
-Python CLI，避免 Make 变量隐式改变发布语义。
-
 ## Makefile targets
 
 运行 `make` 或 `make help` 可以查看全部入口。它们都不是 Bot 每次启动前必须执行的命令：
@@ -204,18 +196,14 @@ Python CLI，避免 Make 变量隐式改变发布语义。
 | Target | 用途 | 什么时候需要 |
 | --- | --- | --- |
 | `help` | 只显示 target 摘要，不修改任何状态 | 不确定命令时使用 |
-| `train-spam-model` | 从 `spam.txt` 重建初始相似度模型 | 修改种子或模型代码后；Docker 构建会自动调用，日常运行不需要 |
-| `export-spam-dataset` | 从 D1 导出 reviewed 数据并合并 `spam.txt` | 准备人工重训时的第一步；需要 D1 凭证，输出含敏感原文 |
-| `build-spam-candidate` | 从本地 JSONL 构建未批准候选 | 人工重训第二步；不会批准或部署 |
-| `approve-spam-candidate` | 将审查后的候选复制为不可覆盖 release | 人工重训第三步；需要 `CANDIDATE` 和 `APPROVED_BY`，仍不会部署 |
+| `retrain-spam-model` | 从 D1 导出已审核数据并构建候选 | 需要 D1 凭证，导出含敏感原文；传 `CLASSIFIER=1` 可尝试二分类 |
+| `approve-spam-candidate` | 将审查后的候选复制为不可覆盖 release | 需要 `CANDIDATE` 和 `APPROVED_BY`，发布单独进行 |
 | `spam` | 将一个或多个 D1 样本人工标注为 Spam | 人工确认样本后使用；需要 D1 凭证、`SPAM_ADMIN_ID` 和 `id=1,2,3` |
 | `ham` | 将一个或多个 D1 样本人工标注为 Ham | 人工确认样本后使用；需要 D1 凭证、`SPAM_ADMIN_ID` 和 `id=1,2,3` |
 | `import-spam-file` | 从一个 UTF-8 `.txt` 文件补录一条完整、多行 Spam | 人工确认文件内容后使用；需要 D1 凭证、`SPAM_ADMIN_ID` 和 `file=...` |
 | `reset-d1` | 永久删除并重建 D1 `samples` 表 | 仅限允许丢弃全部样本的开发阶段；正常运行、重训和发布都不需要 |
 
-通常你只需要直接启动 Bot。只有修改 `spam.txt` 才手工运行 `train-spam-model`；只有准备使用
-人工标签重训时才按顺序执行 export、build、approve。`reset-d1` 不是维护命令，而是当前可丢弃
-开发数据时的重建工具。
+日常直接启动 Bot。准备重训时运行 `make retrain-spam-model`，检查候选后再批准。
 
 人工核对样本后可以批量标注；两条命令都会把 `status`、`label`、`reviewed_at`、
 `reviewed_by` 以及 `message_json` 内的状态同步正确：

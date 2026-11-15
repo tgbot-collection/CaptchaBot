@@ -365,41 +365,20 @@ SPAM_LEARNING_ENABLED=false
 
 ## 11. 从 D1 导出和重训
 
-以下命令只导出 `status=reviewed` 且标签为 `spam`/`ham` 的人工审核记录，并与 `spam.txt` 合并：
+以下命令导出 D1 已人工审核的 `spam` 和 `ham`、合并 `spam.txt`，再尝试构建二分类候选。
 
-```shell
+```sh
 set -a
 source env/captcha.env
 set +a
-venv/bin/python -m spam_learning.retrain export \
-  --seed spam.txt \
-  --output local/spam-retrain.jsonl
+make retrain-spam-model PYTHON=venv/bin/python CLASSIFIER=1
 ```
 
-只构建相似度候选：
+省略 `CLASSIFIER=1` 时构建相似度候选。终端会打印候选目录。检查候选 manifest、数据量、类别分布和评估结果后，可用以下命令人工批准，把示例目录和批准人换成实际值。
 
-```shell
-venv/bin/python -m spam_learning.retrain build \
-  --dataset local/spam-retrain.jsonl \
-  --candidates models/candidates
-```
-
-当真实 Spam/Ham 各自至少能形成两个模板组时，可以显式请求二分类候选：
-
-```shell
-venv/bin/python -m spam_learning.retrain build \
-  --dataset local/spam-retrain.jsonl \
-  --candidates models/candidates \
-  --classifier
-```
-
-检查候选 manifest、数据量、类别分布和评估结果后，人工批准：
-
-```shell
-venv/bin/python -m spam_learning.retrain approve \
-  --candidate models/candidates/<candidate-directory> \
-  --releases models/releases \
-  --approved-by <operator-name>
+```sh
+make approve-spam-candidate PYTHON=venv/bin/python \
+  CANDIDATE=models/candidates/实际候选目录 APPROVED_BY=你的名字
 ```
 
 批准不会自动部署。要把 release 打进镜像：
@@ -410,7 +389,7 @@ venv/bin/python -m spam_learning.retrain approve \
 4. 重建 Bot 容器。
 5. 用管理员 `/model` 确认实际加载的版本。
 
-回滚时将 `SPAM_MODEL_PATH` 改回上一个 release 或镜像内置的 `/CaptchaBot/models/spam_learning`，然后重建容器。不要在运行中的容器里直接覆盖模型目录。
+回滚时将 `SPAM_MODEL_PATH` 改回上一个 release 或镜像内置的 `/CaptchaBot/models/spamdet`，然后重建容器。不要在运行中的容器里直接覆盖模型目录。
 
 ## 12. 常见故障
 

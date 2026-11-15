@@ -133,6 +133,12 @@ Story 007 的离线重训和模型发布约定：
   `approval.json`，不改变 Bot 配置、不重启进程、不自动部署。回滚通过恢复上一 release 的
   `SPAM_MODEL_PATH` 并重启完成。
 
+
+Story 020 将日常重训入口合并为 `make retrain-spam-model`。同一目标依次运行既有 Python CLI 的
+`export` 和 `build`，导出失败便停止。默认构建相似度候选，传入 `CLASSIFIER=1` 时请求二分类。
+`make approve-spam-candidate` 继续用于人工批准。Docker 直接调用 `spamdet.seed_model` 构建内置模型，
+沿用原种子输入和输出路径。
+
 ## 故障处理
 - D1 写入失败：记录脱敏错误，不发送指向不存在记录的审核按钮；现有规则删除不受影响。
 - Bio 查询失败：存 `bio=null/bio_state=unavailable`，不能拖慢删除。

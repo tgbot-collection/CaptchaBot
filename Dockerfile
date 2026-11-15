@@ -9,9 +9,9 @@ RUN pip3 install --user -r /tmp/requirements.txt
 # 使用仓库内人工确认的 spam.txt 在构建期生成确定性初始模型。
 # 每个目标架构独立执行构建，产物为可移植 JSON，不依赖 pickle/joblib。
 WORKDIR /model-build
-COPY Makefile spam.txt ./
+COPY spam.txt ./
 COPY spamdet ./spamdet
-RUN make train-spam-model PYTHON=python SPAM_MODEL_OUTPUT=/opt/captchabot-model
+RUN python -m spamdet.seed_model --input spam.txt --output /opt/captchabot-model
 
 
 FROM python:3.14-slim AS runner

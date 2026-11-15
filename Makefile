@@ -2,42 +2,33 @@
 PYTHON ?= python
 # 人工确认的初始 Spam 正例，每行一条。
 SPAM_SEED_INPUT ?= spam.txt
-# 初始模型输出目录；Docker 构建也会使用该训练入口。
-SPAM_MODEL_OUTPUT ?= models/spamdet
 # D1 reviewed 数据与种子合并后的本地敏感数据集。
 SPAM_RETRAIN_DATASET ?= local/spam-retrain.jsonl
 # 尚未批准的候选模型目录。
 SPAM_CANDIDATES ?= models/candidates
 # 人工批准后的不可覆盖 release 目录。
 SPAM_RELEASES ?= models/releases
+# 设为 1 时尝试构建二分类候选。
+CLASSIFIER ?= 0
 
 .DEFAULT_GOAL := help
-.PHONY: help train-spam-model export-spam-dataset build-spam-candidate approve-spam-candidate spam ham import-spam-file reset-d1
+.PHONY: help retrain-spam-model approve-spam-candidate spam ham import-spam-file reset-d1
 
 # 显示可用 target；这是默认 target，不修改任何文件或远程状态。
 help:
-	@echo "make train-spam-model       从 spam.txt 重建初始相似度模型"
-	@echo "make export-spam-dataset    从 D1 导出 reviewed 数据并合并种子"
-	@echo "make build-spam-candidate   从本地数据集构建未批准候选模型"
+	@echo "make retrain-spam-model     从 D1 导出已审核数据并构建候选，CLASSIFIER=1 尝试二分类"
 	@echo "make approve-spam-candidate 人工批准候选，需要 CANDIDATE 和 APPROVED_BY"
 	@echo "make spam id=1,2,3       将 D1 样本批量人工标注为 Spam"
 	@echo "make ham id=1,2,3        将 D1 样本批量人工标注为 Ham"
 	@echo "make import-spam-file file=message.txt 从 UTF-8 文本文件补录一条人工确认的 Spam"
 	@echo "make reset-d1               永久删除并重建 D1 samples 表，需要双重确认"
 
-# 仅在 spam.txt 或模型代码变化后使用；日常运行 Bot 不需要执行。
-train-spam-model:
-	$(PYTHON) -m spamdet.seed_model --input "$(SPAM_SEED_INPUT)" --output "$(SPAM_MODEL_OUTPUT)"
-
-# 人工重训的第一步；需要有效 D1 凭证，导出文件含敏感原文。
-export-spam-dataset:
+# 导出成功后才构建候选；本地数据集包含敏感原文。
+retrain-spam-model:
 	$(PYTHON) -m spamdet.retrain export --seed "$(SPAM_SEED_INPUT)" --output "$(SPAM_RETRAIN_DATASET)"
+	$(PYTHON) -m spamdet.retrain build --dataset "$(SPAM_RETRAIN_DATASET)" --candidates "$(SPAM_CANDIDATES)" $(if $(filter 1,$(CLASSIFIER)),--classifier)
 
-# 人工重训的第二步；只生成候选，不批准、不部署。
-build-spam-candidate:
-	$(PYTHON) -m spamdet.retrain build --dataset "$(SPAM_RETRAIN_DATASET)" --candidates "$(SPAM_CANDIDATES)"
-
-# 人工重训的第三步；必须明确候选目录和批准人，仍不会自动部署。
+# 检查候选后明确指定候选目录和批准人。
 approve-spam-candidate:
 	@test -n "$(CANDIDATE)" || (echo "必须提供 CANDIDATE=候选目录"; exit 2)
 	@test -n "$(APPROVED_BY)" || (echo "必须提供 APPROVED_BY=批准人"; exit 2)
