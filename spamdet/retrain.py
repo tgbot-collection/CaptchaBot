@@ -155,6 +155,8 @@ def _stored_text(item: StoredSample) -> str:
     text = message.get("text")
     caption = message.get("caption")
     value = text if isinstance(text, str) and text else caption
+    if value is None:
+        return ""
     if not isinstance(value, str):
         raise RetrainError(f"D1 样本 {item.id} 没有可训练文本")
     return value
@@ -349,10 +351,9 @@ def _grouped_split(records: Sequence[DatasetRecord]) -> tuple[list[DatasetRecord
 
     owners: dict[str, int] = {}
     for index, record in enumerate(records):
-        tokens = [
-            *(f"actor:{value}" for value in record.actor_groups),
-            f"message:{record.message_template_group}",
-        ]
+        tokens = [f"actor:{value}" for value in record.actor_groups]
+        if record.normalized_message:
+            tokens.append(f"message:{record.message_template_group}")
         if record.bio_template_group is not None:
             tokens.append(f"bio:{record.bio_template_group}")
         for token in tokens:
@@ -613,6 +614,9 @@ async def export_from_d1(seed_path: Path, output_path: Path, page_size: int) -> 
         await client.aclose()
     dataset = build_dataset(seed_path, reviewed)
     write_dataset(output_path, dataset)
+    skipped_empty = len(reviewed) - dataset.source_counts.get("d1", 0)
+    if skipped_empty:
+        print(f"跳过 {skipped_empty} 条正文、Bio 和显示名称均无可用内容的已审核样本")
     return dataset
 
 

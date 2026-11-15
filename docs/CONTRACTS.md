@@ -113,6 +113,8 @@ Story 007 的离线重训和模型发布约定：
 - `python -m spamdet.retrain export` 只调用 `D1Client.export_reviewed()`，并再次验证每条记录为
   `status=reviewed`、`label=spam/ham` 和兼容的 `schema_version=2`。pending、规则命中和历史预测
   均不能成为训练标签。
+- Story 021 允许正文和 caption 为空的已审核样本使用 Bio 或显示名称。三个通道均无可用内容时，
+  导出跳过该样本并报告条数。空正文不参与模板分组。
 - 导出 format v2 JSONL 保留 message、Bio、display_name 原始 Unicode、各自归一化副本和来源引用。
   相同归一化多字段样本、相同标签时合并来源；出现相反标签时中止，不静默覆盖。
 - 用户 ID 只生成不可逆 actor 摘要用于离线分组，绝不进入模型。相同用户、消息模板或 Bio 模板

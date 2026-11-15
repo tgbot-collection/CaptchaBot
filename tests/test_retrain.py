@@ -80,6 +80,36 @@ class RetrainTests(unittest.TestCase):
             with self.assertRaises(RetrainError):
                 build_dataset(seed, [stored(1, "待审核", "spam", status="pending")])
 
+    def test_profile_only_samples_export_and_train(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            seed = root / "spam.txt"
+            seed.write_text("已确认种子\n", encoding="utf-8")
+            dataset = build_dataset(
+                seed,
+                [
+                    stored(22, "", "spam", bio="招揽广告", first_name="示例昵称"),
+                    stored(23, "", "spam", bio="兼职返佣"),
+                    stored(24, "", "ham", bio="周末爱爬山"),
+                    stored(25, "", "ham", first_name="普通访客"),
+                    stored(26, "", "ham"),
+                ],
+            )
+            self.assertEqual(dataset.source_counts["d1"], 4)
+            record = next(record for record in dataset.records if record.sources[0].get("id") == 22)
+            self.assertEqual((record.text, record.bio, record.display_name), ("", "招揽广告", "示例昵称"))
+            self.assertEqual(record.label, "spam")
+            path = root / "dataset.jsonl"
+            write_dataset(path, dataset)
+            loaded = read_dataset(path)
+            self.assertEqual(loaded, dataset)
+            candidates = root / "candidates"
+            similarity = build_candidate(loaded, candidates)
+            self.assertTrue(LocalPredictor.from_path(similarity.candidate_dir).available)
+            classifier = build_candidate(loaded, candidates, classifier=True)
+            self.assertEqual(classifier.kind, "logistic_regression")
+            self.assertIsNotNone(classifier.evaluation)
+
     def test_merge_preserves_sources_and_rejects_conflicting_labels(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             seed = Path(temporary) / "spam.txt"
