@@ -16,6 +16,7 @@ import time
 import redis.asyncio as aioredis
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from captcha.image import ImageCaptcha
+from dotenv import load_dotenv
 from pyrogram import Client, enums, filters, types
 from pyrogram.raw import functions as raw_functions
 from pyrogram.raw import types as raw_types
@@ -39,13 +40,7 @@ from spamdet import (
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logging.getLogger("apscheduler.executors.default").propagate = False
 
-
-try:
-    from dotenv import load_dotenv
-    load_dotenv(verbose=True)
-except ImportError:
-    logging.warning("Dotenv not found")
-
+load_dotenv(verbose=True)
 APP_ID = os.getenv("API_ID")
 API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
