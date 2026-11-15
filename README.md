@@ -189,6 +189,9 @@ python -m spamdet.retrain approve \
 `models/releases/<model-version>` 并重启；回滚时改回上一个 release 并重启。二分类
 `spam`/`ham` 仍只是管理员建议，分数是未校准 Spam 分数，不能触发删除、封禁或禁言。
 
+本地可用 `make test-model PYTHON=venv/bin/python` 试判最新候选。命令按候选 manifest 的修改时间选择模型，
+每行输入一条正文，空行退出。
+
 ## Makefile targets
 
 运行 `make` 或 `make help` 可以查看全部入口。它们都不是 Bot 每次启动前必须执行的命令：

@@ -12,11 +12,12 @@ SPAM_RELEASES ?= models/releases
 CLASSIFIER ?= 0
 
 .DEFAULT_GOAL := help
-.PHONY: help retrain-spam-model approve-spam-candidate reset-d1
+.PHONY: help retrain-spam-model test-model approve-spam-candidate reset-d1
 
 # 显示可用 target；这是默认 target，不修改任何文件或远程状态。
 help:
 	@echo "make retrain-spam-model     从 D1 导出已审核数据并构建候选，CLASSIFIER=1 尝试二分类"
+	@echo "make test-model             交互试判最新的本地模型候选"
 	@echo "make approve-spam-candidate 人工批准候选，需要 CANDIDATE 和 APPROVED_BY"
 	@echo "make spam id=1,2,3       将 D1 样本批量人工标注为 Spam"
 	@echo "make ham id=1,2,3        将 D1 样本批量人工标注为 Ham"
@@ -27,6 +28,9 @@ help:
 retrain-spam-model:
 	$(PYTHON) -m spamdet.retrain export --seed "$(SPAM_SEED_INPUT)" --output "$(SPAM_RETRAIN_DATASET)"
 	$(PYTHON) -m spamdet.retrain build --dataset "$(SPAM_RETRAIN_DATASET)" --candidates "$(SPAM_CANDIDATES)" $(if $(filter 1,$(CLASSIFIER)),--classifier)
+
+test-model:
+	$(PYTHON) -m spamdet.try_model --candidates "$(SPAM_CANDIDATES)"
 
 # 检查候选后明确指定候选目录和批准人。
 approve-spam-candidate:

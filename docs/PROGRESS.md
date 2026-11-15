@@ -23,5 +23,6 @@
 - [x] 019 — 本地 D1 样本审核网页 · [Notes](notes/019-notes.md) · 已完成
 - [x] 020 — 合并人工重训 Make 入口 · [Notes](notes/020-notes.md) · 已完成
 - [x] 021 — 重训支持仅有个人资料的样本 · [Notes](notes/021-notes.md) · 已完成
+- [x] 022 — 交互试判本地候选模型 · [Notes](notes/022-notes.md) · 已完成
 
 这里仅记录状态；真实验证方式/结果、决策、修改文件、风险和 commit hash 必须写入对应 Notes。每次新会话先阅读已完成的 Notes。
