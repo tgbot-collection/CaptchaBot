@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; connect-src 'self'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; base-uri 'none'">
+<title>样本审核</title>
+<style>
+  :root { font-family: Inter, system-ui, sans-serif; color: #192331; background: #f5f7fa; }
+  body { max-width: 1300px; padding: 24px; margin: auto; }
+  h1 { margin: 0 0 20px; font-size: 1.65rem; }
+  .bar, nav { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .batch { display: flex; align-items: center; gap: 6px; margin-left: auto; }
+  button, select { font: inherit; background: white; color: inherit; border: 1px solid #cbd4e0; border-radius: 6px; padding: 6px 10px; }
+  button { cursor: pointer; }
+  button:disabled, select:disabled { opacity: .55; cursor: default; }
+  button:not(:disabled):hover { background: #edf2f7; }
+  button[data-action="delete"] { color: #962328; }
+  .table { overflow-x: auto; background: white; border: 1px solid #dce3ec; border-radius: 8px; }
+  table { width: 100%; border-collapse: collapse; text-align: left; }
+  th, td { padding: 10px; border-bottom: 1px solid #e5eaf0; vertical-align: top; }
+  tr:last-child td { border-bottom: 0; }
+  th { background: #eef2f7; }
+  .select-all { position: relative; min-width: 24px; }
+  .select-all label { position: absolute; inset: 0; display: grid; place-items: center; cursor: pointer; }
+  .select-all label:has(input:disabled) { cursor: default; }
+  #table-head:has(#all:enabled) { cursor: pointer; }
+  tbody tr:has(input:enabled) { cursor: pointer; }
+  .json-popover { cursor: text; }
+  td:last-child { white-space: nowrap; }
+  td:last-child button { margin-right: 4px; }
+  .text { white-space: pre-wrap; overflow-wrap: anywhere; min-width: 12rem; width: 100%; }
+  .json-actions { display: flex; gap: 4px; }
+  .json-actions button { display: grid; place-items: center; width: 30px; height: 30px; padding: 0; }
+  .json-actions svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .json-popover {
+    box-sizing: border-box; position: fixed; z-index: 2; margin: 0; padding: 12px;
+    width: min(36rem, calc(100vw - 24px)); overflow: auto; background: white;
+    border: 1px solid #cbd4e0; border-radius: 6px; box-shadow: 0 6px 18px #19233126;
+    white-space: pre-wrap; overflow-wrap: anywhere;
+  }
+  .json-preview:not(:hover):not(:focus-within) .json-popover { visibility: hidden; }
+  nav { margin-top: 12px; }
+  #notice { min-height: 1.5em; margin: 12px 0; }
+  #notice[data-error="true"] { color: #962328; }
+  @media (max-width: 650px) { body { padding: 12px; } .batch { margin-left: 0; } }
+</style>
+</head>
+<body>
+<h1>样本审核</h1>
+<div class="bar">
+  <label>status
+    <select id="filter">
+      <option value="all">全部</option>
+      <option value="pending" selected>pending</option>
+      <option value="reviewed">reviewed</option>
+      <option value="spam">spam</option>
+      <option value="ham">ham</option>
+    </select>
+  </label>
+  <button id="refresh">刷新</button>
+  <span id="total" aria-live="polite"></span>
+  <div class="batch">
+    <span id="selected">已选 0 条</span>
+    <button data-action="spam" disabled>批量 spam</button>
+    <button data-action="ham" disabled>批量 ham</button>
+    <button data-action="delete" disabled>批量 delete</button>
+  </div>
+</div>
+<p id="notice" role="status"></p>
+<div class="table">
+  <table>
+    <thead id="table-head"><tr>
+      <th class="select-all"><label><input type="checkbox" id="all" aria-label="全选当前页" disabled></label></th>
+      <th scope="col">id</th><th scope="col">message_json</th><th scope="col">text</th>
+      <th scope="col">status</th><th scope="col">action</th>
+    </tr></thead>
+    <tbody></tbody>
+  </table>
+</div>
+<nav aria-label="分页">
+  <button id="previous" disabled>上一页</button>
+  <span id="page"></span>
+  <button id="next" disabled>下一页</button>
+</nav>
+<template id="preview-icon">
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6-10-6-10-6Z"/>
+    <circle cx="12" cy="12" r="2.5"/>
+  </svg>
+</template>
+<template id="copy-icon">
+  <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+    <rect x="8" y="8" width="12" height="12" rx="2"/>
+    <path d="M16 5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2"/>
+  </svg>
+</template>
+<script>
+  const filter = document.querySelector('#filter');
+  const refresh = document.querySelector('#refresh');
+  const all = document.querySelector('#all');
+  const body = document.querySelector('tbody');
+  const selected = document.querySelector('#selected');
+  const notice = document.querySelector('#notice');
+  const previous = document.querySelector('#previous');
+  const next = document.querySelector('#next');
+  const page = document.querySelector('#page');
+  const total = document.querySelector('#total');
+  const previewIcon = document.querySelector('#preview-icon');
+  const copyIcon = document.querySelector('#copy-icon');
+  const batch = document.querySelectorAll('.batch button');
+  const selection = new Set();
+  let rows = [];
+  let cursors = [null];
+  let hasMore = false;
+  let busy = false;
+
+  function report(message = '', error = false) {
+    notice.textContent = message;
+    notice.dataset.error = error;
+  }
+
+  async function request(path, data) {
+    const response = await fetch(path, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(data)
+    });
+    const result = await response.json();
+    if (!response.ok) throw Error(result.error ?? '请求失败。');
+    return result;
+  }
+
+  function updateControls() {
+    selected.textContent = `已选 ${selection.size} 条`;
+    all.checked = rows.length > 0 && selection.size === rows.length;
+    all.indeterminate = selection.size > 0 && selection.size < rows.length;
+    all.disabled = busy || !rows.length;
+    for (const checkbox of body.querySelectorAll('input')) {
+      checkbox.checked = selection.has(checkbox.value);
+      checkbox.disabled = busy;
+    }
+    for (const button of body.querySelectorAll('button')) button.disabled = busy;
+    for (const button of batch) button.disabled = busy || !selection.size;
+    filter.disabled = refresh.disabled = busy;
+    previous.disabled = busy || cursors.length === 1;
+    next.disabled = busy || !hasMore;
+    page.textContent = `第 ${cursors.length} 页`;
+  }
+
+  function jsonActions(sample) {
+    const actions = document.createElement('div');
+    actions.className = 'json-actions';
+    const preview = document.createElement('div');
+    preview.className = 'json-preview';
+    const trigger = document.createElement('button');
+    trigger.setAttribute('aria-label', '预览 JSON');
+    trigger.append(previewIcon.content.cloneNode(true));
+    const json = document.createElement('pre');
+    json.className = 'json-popover';
+    json.tabIndex = 0;
+    json.textContent = sample.message_json;
+    json.id = `json-${sample.id}`;
+    trigger.setAttribute('aria-describedby', json.id);
+    function positionPreview() {
+      const rect = trigger.getBoundingClientRect();
+      const below = window.innerHeight - rect.bottom;
+      const above = below < 200 && rect.top > below;
+      const left = Math.max(12, Math.min(rect.left, window.innerWidth - json.offsetWidth - 12));
+      json.style.left = `${left}px`;
+      json.style.top = above ? 'auto' : `${rect.bottom}px`;
+      json.style.bottom = above ? `${window.innerHeight - rect.top}px` : 'auto';
+      json.style.maxHeight = `${Math.min(320, (above ? rect.top : below) - 8)}px`;
+    }
+    preview.addEventListener('pointerenter', positionPreview);
+    preview.addEventListener('focusin', positionPreview);
+    preview.append(trigger, json);
+
+    const copy = document.createElement('button');
+    copy.title = '复制 JSON';
+    copy.append(copyIcon.content.cloneNode(true));
+    copy.setAttribute('aria-label', `复制样本 ${sample.id} 的 JSON`);
+    copy.onclick = async () => {
+      try {
+        await navigator.clipboard.writeText(sample.message_json);
+        report(`已复制样本 ${sample.id} 的 JSON。`);
+      } catch {
+        report('复制失败，请在预览中手动复制。', true);
+      }
+    };
+    actions.append(preview, copy);
+    return actions;
+  }
+
+  function render() {
+    body.replaceChildren();
+    for (const sample of rows) {
+      const row = body.insertRow();
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = sample.id;
+      checkbox.setAttribute('aria-label', `选择样本 ${sample.id}`);
+      checkbox.onchange = () => {
+        if (checkbox.checked) selection.add(sample.id);
+        else selection.delete(sample.id);
+        updateControls();
+      };
+      row.addEventListener('click', event => {
+        if (checkbox.disabled || event.target.closest('button, input, pre')) return;
+        if (window.getSelection()?.isCollapsed === false) return;
+        checkbox.click();
+      });
+      row.insertCell().append(checkbox);
+      row.insertCell().textContent = sample.id;
+
+      row.insertCell().append(jsonActions(sample));
+
+      const text = row.insertCell();
+      text.className = 'text';
+      text.textContent = sample.text;
+      row.insertCell().textContent = sample.label ? `${sample.status} / ${sample.label}` : sample.status;
+      const actions = row.insertCell();
+      for (const action of ['spam', 'ham', 'delete']) {
+        const button = document.createElement('button');
+        button.textContent = action;
+        button.dataset.action = action;
+        button.setAttribute('aria-label', `${action} 样本 ${sample.id}`);
+        button.onclick = () => change(action, [sample.id]);
+        actions.append(button);
+      }
+    }
+    if (!rows.length) {
+      const cell = body.insertRow().insertCell();
+      cell.colSpan = 6;
+      cell.textContent = '暂无样本';
+    }
+  }
+
+  async function load() {
+    selection.clear();
+    rows = [];
+    hasMore = false;
+    total.textContent = '';
+    body.replaceChildren();
+    while (true) {
+      const result = await request('/list', {status: filter.value, before: cursors.at(-1)});
+      rows = result.rows;
+      hasMore = result.has_more;
+      total.textContent = filter.value === 'all'
+        ? `共 ${result.total} 条`
+        : `筛选结果 ${result.filtered_total} 条 · 总计 ${result.total} 条`;
+      if (rows.length || cursors.length === 1) break;
+      cursors.pop();
+    }
+    render();
+  }
+
+  async function run(operation) {
+    busy = true;
+    report('处理中…');
+    updateControls();
+    try {
+      await operation();
+    } catch (error) {
+      report(error.message, true);
+    } finally {
+      busy = false;
+      updateControls();
+    }
+  }
+
+  function showPage() {
+    run(async () => {
+      await load();
+      report();
+    });
+  }
+
+  function change(action, ids) {
+    if (action === 'delete' && !confirm(`永久删除 D1 中选中的 ${ids.length} 条样本？`)) return;
+    run(async () => {
+      const result = await request('/action', {action, ids});
+      const message = action === 'delete'
+        ? `已确认 ${result.count} 条所选样本不在 D1 中。`
+        : `已将 ${result.count} 条样本标记为 ${action}。`;
+      try {
+        await load();
+        report(message);
+      } catch (error) {
+        report(`${message} 列表刷新失败，请点击刷新。`, true);
+      }
+    });
+  }
+
+  all.onchange = () => {
+    selection.clear();
+    if (all.checked) for (const sample of rows) selection.add(sample.id);
+    updateControls();
+  };
+  document.querySelector('#table-head').addEventListener('click', event => {
+    if (!all.disabled && !event.target.closest('label')) all.click();
+  });
+  for (const button of batch) button.onclick = () => change(button.dataset.action, [...selection]);
+  filter.onchange = () => { cursors = [null]; showPage(); };
+  refresh.onclick = showPage;
+  previous.onclick = () => { cursors.pop(); showPage(); };
+  next.onclick = () => { cursors.push(rows.at(-1).id); showPage(); };
+  if (location.protocol === 'file:') {
+    report('请双击「review.command」启动审核网页。');
+    filter.disabled = refresh.disabled = true;
+  } else {
+    showPage();
+  }
+</script>
+</body>
+</html>

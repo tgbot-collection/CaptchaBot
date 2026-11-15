@@ -316,3 +316,15 @@ docker-compose up -d
 # License
 
 Apache License Version 2.0
+
+### 本机审核网页
+
+macOS 在 Finder 双击 `review.command`，会使用现有 Python 环境启动审核页，并在默认浏览器打开。终端也可以运行：
+
+```sh
+venv/bin/python -m spamdet.web_review
+```
+
+使用现有的 `D1_ACCOUNT_ID`、`D1_DATABASE_ID`、`D1_API_TOKEN`（D1 Write）和 `SPAM_ADMIN_ID`。按已设置的环境变量、仓库根目录 `.env`、`env/captcha.env` 的顺序读取。配置放在其他位置时，可运行 `./review.command --env-file /path/to/config.env`。使用完在启动终端按 Ctrl+C 停止服务。
+
+默认显示 pending，每页 50 条。顶部显示当前筛选结果条数和样本总数。将鼠标移到眼睛图标可预览 JSON，点击复制图标可复制原始 JSON。勾选当前页样本可批量操作。`spam` 和 `ham` 可以纠正既有标签。`delete` 确认后永久删除 D1 样本，Telegram 原消息和审核通知留在 Telegram。

@@ -427,6 +427,58 @@ class D1Client:
             raise D1NotFoundError(f"样本不存在：{missing_text}；整批未更新")
         raise D1APIError("D1 批量标注未更新任何样本")
 
+    async def list_review_samples(
+        self, status: str, before: str | None, limit: int
+    ) -> tuple[list[dict[str, Any]], int, int]:
+        if status not in ("all", "pending", "reviewed", "spam", "ham"):
+            raise ValueError("无效的审核筛选项")
+        if before is not None and (
+            not isinstance(before, str) or not before.isascii() or not before.isdecimal()
+            or len(before) > 19 or not 0 < int(before) <= 2**63 - 1
+        ):
+            raise ValueError("无效的分页游标")
+        cursor = before or ""
+        result = await self._query(
+            """
+            WITH totals AS (
+                SELECT COUNT(*) AS total,
+                       COUNT(CASE WHEN ? = 'all' OR status = ? OR label = ? THEN 1 END) AS filtered_total
+                FROM samples
+            ),
+            page AS (
+                SELECT id, message_json, text, status, label
+                FROM samples
+                WHERE (? = '' OR id < CAST(? AS INTEGER))
+                  AND (? = 'all' OR status = ? OR label = ?)
+                ORDER BY id DESC
+                LIMIT ?
+            )
+            SELECT CAST(page.id AS TEXT) AS id, page.message_json, page.text, page.status, page.label,
+                   totals.total, totals.filtered_total
+            FROM totals LEFT JOIN page ON TRUE
+            ORDER BY page.id DESC
+            """,
+            (status, status, status, cursor, cursor, status, status, status, str(limit)),
+        )
+        rows = _result_rows(result)
+        if not rows:
+            raise D1APIError("D1 未返回审核样本条数")
+        total = rows[0]["total"]
+        filtered_total = rows[0]["filtered_total"]
+        for row in rows:
+            del row["total"], row["filtered_total"]
+        return [row for row in rows if row["id"] is not None], total, filtered_total
+
+    async def delete_review_samples(self, sample_ids: Sequence[int]) -> None:
+        """一次删除选中的样本；记录已不存在时可安全重试。"""
+        ids = [_positive_id(value, "sample_id") for value in sample_ids]
+        if not ids:
+            raise ValueError("sample_ids 不能为空")
+        await self._query(
+            "DELETE FROM samples WHERE id IN (SELECT CAST(value AS INTEGER) FROM json_each(?))",
+            (json.dumps(ids),),
+        )
+
     async def set_review_message(self, sample_id: int, chat_id: int, message_id: int) -> None:
         """记录已成功发送的单管理员审核通知位置。"""
 

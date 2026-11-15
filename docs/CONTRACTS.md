@@ -144,3 +144,10 @@ Story 007 的离线重训和模型发布约定：
 
 ## 隐私和运维
 只采集必要字段；限制 D1 Token 权限和管理员 ID；V1 不采集头像。不存整个 `Message` 内部状态，只保存业务需要的 JSON 快照。上线前明确 pending/reviewed 原始个人信息的保留期限和删除机制。日志不得包含消息全文、完整 Bio、私密 Telegram 标识符或 API Token。
+
+## 本机样本审核网页
+
+Story 019 增加显式启动的 `python -m spamdet.web_review`，服务绑定 `127.0.0.1` 随机端口。为适配 Cloudflare D1 REST 的浏览器跨域限制，网页与本机 Python 服务同源，D1 凭证由 Python 读取。
+
+- `POST /list` 接收 `status`（`all/pending/reviewed/spam/ham`）和 `before`（首屏为 null），返回 `rows/has_more/total/filtered_total`，其中 `total` 是样本总数，`filtered_total` 是不受游标限制的筛选匹配条数。按 ID 降序翻页，每页至多 50 条，ID 使用十进制字符串。
+- `POST /action` 接收 `action`（`spam/ham/delete`）和 `ids`（至多 50 个 ID 字符串），返回处理的 ID 数量 `count`。人工标注复用 `D1Client.label_samples`，删除以一条参数化 SQL 移除所选样本，已经不存在的 ID 也满足删除目标。两个端点只接收本机页面同源 JSON 请求。
