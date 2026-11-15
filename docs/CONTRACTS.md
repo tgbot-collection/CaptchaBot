@@ -124,8 +124,10 @@ Story 007 的离线重训和模型发布约定：
 - 相似度候选使用所有确认 Spam，Ham 为零也必须可构建。`--classifier` 只有在两类都能形成至少
   两个模板组、从而得到两类齐全且无模板组交叉的训练/测试集时才生效；否则回退相似度候选。
   该条件只表示能执行评估，不是质量保证。
-- 二分类类型为 `logistic_regression`，继续使用字符 2–5 gram TF-IDF，输出 `spam` 或 `ham`；
+- 二分类类型为 `logistic_regression`，使用字符 2–5 gram TF-IDF。有有效特征时输出 `spam` 或 `ham`；
   `score` 是未校准 Spam 分数，不能当成可靠概率，更不能触发管理动作。
+- Story 023 中，二分类模型未匹配到任何有效特征时输出 `unknown` 和空分数。评估以
+  `unknown_by_label` 单独记录未知判定，真实 Spam 的未知判定仍计入召回率分母。
 - `LocalPredictor` 按受信任本地 `manifest.json` 的 `kind` 加载 `similarity` 或
   `logistic_regression` JSON artifact。两种模型都校验格式、内容哈希、路径和结构，不加载
   `pickle`/`joblib`。

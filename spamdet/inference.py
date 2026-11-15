@@ -93,6 +93,7 @@ def render_model_status(status: ModelStatus) -> str:
     if status.kind == "logistic_regression":
         semantics = (
             "spam / ham: 二分类模型建议，不能触发任何管理动作\n"
+            "unknown: 未命中已知特征，无法判定\n"
             "分数是未校准的 Spam 分数，不应解释为可靠概率。"
         )
     else:

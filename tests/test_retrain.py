@@ -9,6 +9,8 @@ from spamdet.d1 import StoredSample
 from spamdet.model_loader import LocalPredictor
 from spamdet.retrain import (
     RetrainError,
+    _metrics,
+    _regression_report,
     approve_candidate,
     build_candidate,
     build_dataset,
@@ -169,6 +171,19 @@ class RetrainTests(unittest.TestCase):
             self.assertTrue(predictor.available)
             self.assertIn(result.decision, {"spam", "ham"})
             self.assertIsNotNone(candidate.evaluation)
+            for text in ("", "你好"):
+                unknown = predictor.predict_text(text)
+                self.assertEqual(unknown.decision, "unknown")
+                self.assertIsNone(unknown.score)
+            report = _regression_report(candidate.candidate_dir, [("你好", "ham")])
+            self.assertEqual(report["confusion_matrix"]["tn"], 0)
+            self.assertEqual(report["unknown_by_label"], {"spam": 0, "ham": 1})
+
+    def test_unknown_spam_counts_against_recall(self) -> None:
+        metrics = _metrics(["spam", "spam", "ham"], ["spam", "unknown", "unknown"])
+        self.assertEqual(metrics.recall, 0.5)
+        self.assertEqual(metrics.confusion_matrix, {"tp": 1, "fp": 0, "tn": 0, "fn": 0})
+        self.assertEqual(metrics.unknown_by_label, {"spam": 1, "ham": 1})
 
     def test_approval_copies_candidate_and_never_overwrites_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

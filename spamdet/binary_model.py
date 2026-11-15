@@ -152,6 +152,8 @@ class BinaryTextModel:
             self.idf,
             self.channel_weights,
         )
+        if not vector:
+            return PredictionResult(MODEL_KIND, "unknown", None, self.model_version)
         score = _sigmoid(self.bias + sum(self.weights[index] * value for index, value in vector.items()))
         decision = "spam" if score >= self.threshold else "ham"
         return PredictionResult(MODEL_KIND, decision, score, self.model_version)

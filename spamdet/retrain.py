@@ -88,6 +88,7 @@ class EvaluationMetrics:
     recall: float
     false_positives: int
     confusion_matrix: Mapping[str, int]
+    unknown_by_label: Mapping[str, int]
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -95,6 +96,7 @@ class EvaluationMetrics:
             "recall": self.recall,
             "false_positives": self.false_positives,
             "confusion_matrix": dict(self.confusion_matrix),
+            "unknown_by_label": dict(self.unknown_by_label),
         }
 
 
@@ -403,15 +405,18 @@ def _grouped_split(records: Sequence[DatasetRecord]) -> tuple[list[DatasetRecord
 
 
 def _metrics(expected: Sequence[str], predicted: Sequence[str]) -> EvaluationMetrics:
-    tp = sum(a == "spam" and b == "spam" for a, b in zip(expected, predicted, strict=True))
-    fp = sum(a == "ham" and b == "spam" for a, b in zip(expected, predicted, strict=True))
-    tn = sum(a == "ham" and b == "ham" for a, b in zip(expected, predicted, strict=True))
-    fn = sum(a == "spam" and b == "ham" for a, b in zip(expected, predicted, strict=True))
+    outcomes = Counter(zip(expected, predicted, strict=True))
+    tp = outcomes["spam", "spam"]
+    fp = outcomes["ham", "spam"]
+    tn = outcomes["ham", "ham"]
+    fn = outcomes["spam", "ham"]
+    positives = expected.count("spam")
     return EvaluationMetrics(
         precision=tp / (tp + fp) if tp + fp else 0.0,
-        recall=tp / (tp + fn) if tp + fn else 0.0,
+        recall=tp / positives if positives else 0.0,
         false_positives=fp,
         confusion_matrix={"tp": tp, "fp": fp, "tn": tn, "fn": fn},
+        unknown_by_label={label: outcomes[label, "unknown"] for label in ("spam", "ham")},
     )
 
 
@@ -460,12 +465,17 @@ def _regression_report(model_path: Path, regression: Sequence[tuple[str, str]]) 
     if not predictor.available:
         return {"available": False}
     decisions = [predictor.predict_text(text).decision for text, _ in regression]
-    mapped = ["spam" if value in {"spam", "spam_like"} else "ham" for value in decisions]
+    if predictor.kind == "logistic_regression":
+        mapped = decisions
+        decision_mapping = "spam=>spam; ham=>ham; unknown=>unknown"
+    else:
+        mapped = ["spam" if value == "spam_like" else "ham" for value in decisions]
+        decision_mapping = "spam_like=>spam; unknown=>ham"
     metrics = _metrics([label for _, label in regression], mapped)
     return {
         "available": True,
         "kind": predictor.kind,
-        "decision_mapping": "spam|spam_like=>spam; ham|unknown=>ham",
+        "decision_mapping": decision_mapping,
         **metrics.to_dict(),
     }
 
