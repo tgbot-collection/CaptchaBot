@@ -12,7 +12,7 @@ SPAM_RELEASES ?= models/releases
 CLASSIFIER ?= 0
 
 .DEFAULT_GOAL := help
-.PHONY: help retrain-spam-model approve-spam-candidate spam ham import-spam-file reset-d1
+.PHONY: help retrain-spam-model approve-spam-candidate reset-d1
 
 # 显示可用 target；这是默认 target，不修改任何文件或远程状态。
 help:
@@ -33,24 +33,6 @@ approve-spam-candidate:
 	@test -n "$(CANDIDATE)" || (echo "必须提供 CANDIDATE=候选目录"; exit 2)
 	@test -n "$(APPROVED_BY)" || (echo "必须提供 APPROVED_BY=批准人"; exit 2)
 	$(PYTHON) -m spamdet.retrain approve --candidate "$(CANDIDATE)" --releases "$(SPAM_RELEASES)" --approved-by "$(APPROVED_BY)"
-
-# 人工确认后批量标注 Spam；需要 D1 凭证、SPAM_ADMIN_ID 和 id=逗号分隔的正整数。
-spam: export SPAM_SAMPLE_IDS := $(id)
-spam:
-	@test -n "$$SPAM_SAMPLE_IDS" || (echo "必须提供 id=1,2,3"; exit 2)
-	$(PYTHON) -m spamdet.d1_label --label spam --ids "$$SPAM_SAMPLE_IDS"
-
-# 人工确认后批量标注 Ham；会同步 status、label、reviewed_at、reviewed_by 和样本 JSON。
-ham: export SPAM_SAMPLE_IDS := $(id)
-ham:
-	@test -n "$$SPAM_SAMPLE_IDS" || (echo "必须提供 id=1,2,3"; exit 2)
-	$(PYTHON) -m spamdet.d1_label --label ham --ids "$$SPAM_SAMPLE_IDS"
-
-# 一个 UTF-8 .txt 文件代表一条完整、多行的人工确认 Spam；需要 D1 凭证和 SPAM_ADMIN_ID。
-import-spam-file: export SPAM_IMPORT_FILE := $(file)
-import-spam-file:
-	@test -n "$$SPAM_IMPORT_FILE" || (echo "必须提供 file=message.txt"; exit 2)
-	$(PYTHON) -m spamdet.d1_import_spam --file "$$SPAM_IMPORT_FILE" --confirm-spam
 
 # 仅限允许丢弃全部样本的开发阶段。先删表，成功后立即执行最终 Migration 重建。
 # 示例：make reset-d1 CONFIRM_RESET_D1=YES
