@@ -151,6 +151,33 @@ class GroupSelectionTests(unittest.TestCase):
         with self.assertRaises(ConfigError):
             SpamLearningConfig.from_env({**base, "SPAM_CAPTURE_GROUPS": "all,-1001"})
 
+    def test_exclusions_override_all_and_allowlist(self) -> None:
+        base = {"SPAM_LEARNING_ENABLED": "true", "SPAM_ADMIN_ID": "123",
+                "D1_ACCOUNT_ID": "a", "D1_DATABASE_ID": "d", "D1_API_TOKEN": "t"}
+        for selection in ("all", "-1001,-2002"):
+            config = SpamLearningConfig.from_env({
+                **base, "SPAM_CAPTURE_GROUPS": selection,
+                "SPAM_CAPTURE_EXCLUDE_GROUPS": " -1001, -1001, -3003 ",
+            })
+            self.assertEqual(config.record_exclude_groups, frozenset({-1001, -3003}))
+            self.assertFalse(config.records_group(-1001))
+            self.assertTrue(config.records_group(-2002))
+            for chat_id in (None, 123, -3003):
+                self.assertFalse(config.records_group(chat_id))
+        for value in ("", "  "):
+            self.assertTrue(SpamLearningConfig.from_env({
+                **base, "SPAM_CAPTURE_GROUPS": "all", "SPAM_CAPTURE_EXCLUDE_GROUPS": value,
+            }).records_group(-1001))
+        self.assertFalse(SpamLearningConfig.from_env({
+            **base, "SPAM_CAPTURE_EXCLUDE_GROUPS": "-1001",
+        }).records_group(-2002))
+        self.assertFalse(SpamLearningConfig(
+            record_groups=frozenset(), record_exclude_groups=frozenset({-1001}),
+        ).records_group(-2002))
+        for value in ("all", "123", "0", "-0", "-1001,", "-1001,, -2002", "invalid"):
+            with self.subTest(value=value), self.assertRaises(ConfigError):
+                SpamLearningConfig.from_env({"SPAM_CAPTURE_EXCLUDE_GROUPS": value})
+
 
 class GroupCaptureTests(unittest.IsolatedAsyncioTestCase):
     async def test_selected_normal_message_is_pending_and_other_group_is_not_recorded(self) -> None:
@@ -177,6 +204,30 @@ class GroupCaptureTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(capture.samples[0].user.bio_state, "present")
         finally:
             main.spam_capture_service, main.spamdet_config = old_service, old_config
+
+    async def test_excluded_group_skips_normal_capture_but_keeps_keyword_deletion(self) -> None:
+        capture = RecordingCapture()
+        config = SpamLearningConfig(
+            enabled=True, record_groups=frozenset(),
+            record_exclude_groups=frozenset({-100123}),
+        )
+        with patch.object(main, "spam_capture_service", capture), patch.object(
+            main, "spamdet_config", config
+        ), patch.object(main.app, "get_chat", new=AsyncMock(return_value=SimpleNamespace(bio=None))) as get_chat:
+            normal = FakeMessage()
+            with patch.dict("os.environ", {"BLACKLIST_MESSAGE": "洗钱"}):
+                self.assertFalse(await main.group_message_preprocess(main.app, normal))
+                self.assertEqual(capture.samples, [])
+                self.assertFalse(normal.deleted)
+                get_chat.reset_mock()
+                spam = FakeMessage()
+                spam.text = "洗钱"
+                self.assertTrue(await main.group_message_preprocess(main.app, spam))
+            get_chat.assert_not_awaited()
+            self.assertTrue(spam.deleted)
+            self.assertEqual(len(capture.samples), 1)
+            self.assertEqual(capture.samples[0].source, "rule")
+            self.assertEqual(capture.samples[0].message.text, "洗钱")
 
     async def test_selected_structured_message_stays_group_pending(self) -> None:
         old_service, old_config = main.spam_capture_service, main.spamdet_config

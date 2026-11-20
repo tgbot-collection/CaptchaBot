@@ -26,4 +26,6 @@
 - [x] 022 — 交互试判本地候选模型 · [Notes](notes/022-notes.md) · 已完成
 - [x] 023 — 二分类模型无已知特征时返回 unknown · [Notes](notes/023-notes.md) · 已完成
 
+- [x] 024 — 普通群消息采集排除列表 · [Notes](notes/024-notes.md) · 已完成
+
 这里仅记录状态；真实验证方式/结果、决策、修改文件、风险和 commit hash 必须写入对应 Notes。每次新会话先阅读已完成的 Notes。

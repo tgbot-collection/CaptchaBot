@@ -59,6 +59,15 @@ def _parse_record_groups(value: str | None) -> frozenset[int] | None:
     return frozenset(int(part.strip()) for part in parts)
 
 
+def _parse_exclude_groups(value: str | None) -> frozenset[int]:
+    if value is None or not value.strip():
+        return frozenset()
+    parts = value.split(",")
+    if not all(re.fullmatch(r"-[1-9]\d*", part.strip()) for part in parts):
+        raise ConfigError("SPAM_CAPTURE_EXCLUDE_GROUPS 必须是逗号分隔的负数群组 ID")
+    return frozenset(int(part.strip()) for part in parts)
+
+
 def _parse_positive_int(name: str, value: str | None, *, default: int) -> int:
     if value is None:
         return default
@@ -105,12 +114,13 @@ class SpamLearningConfig:
     bio_cache_size: int = 1000
     capture_shutdown_timeout_seconds: float = 5.0
     record_groups: frozenset[int] | None = None
+    record_exclude_groups: frozenset[int] = frozenset()
     review_dedupe_enabled: bool = False
     review_dedupe_ttl_seconds: int = 604800
     review_dedupe_lease_seconds: int = 60
 
     def records_group(self, chat_id: int | None) -> bool:
-        return self.enabled and chat_id is not None and chat_id < 0 and (
+        return self.enabled and chat_id is not None and chat_id < 0 and chat_id not in self.record_exclude_groups and (
             self.record_groups is not None and (not self.record_groups or chat_id in self.record_groups)
         )
 
@@ -134,6 +144,7 @@ class SpamLearningConfig:
             d1_api_token=_optional_value(values.get("D1_API_TOKEN")),
             model_path=Path(model_path_value),
             record_groups=_parse_record_groups(values.get("SPAM_CAPTURE_GROUPS")),
+            record_exclude_groups=_parse_exclude_groups(values.get("SPAM_CAPTURE_EXCLUDE_GROUPS")),
             review_dedupe_enabled=_parse_bool(
                 "SPAM_REVIEW_DEDUPE_ENABLED",
                 values.get("SPAM_REVIEW_DEDUPE_ENABLED"),

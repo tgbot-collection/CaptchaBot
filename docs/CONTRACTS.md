@@ -32,6 +32,7 @@ Story 001 结合真实 Kurigram/Pyrogram `Message` 后确定：
 - Story 003 增加 `SPAM_CAPTURE_QUEUE_SIZE`、`SPAM_CAPTURE_WORKERS`、`SPAM_BIO_TIMEOUT_SECONDS`、`SPAM_BIO_CACHE_TTL_SECONDS`、`SPAM_BIO_CACHE_SIZE`、`SPAM_CAPTURE_SHUTDOWN_TIMEOUT_SECONDS`；具体默认值见 `README.md` 和 `docs/notes/003-notes.md`。
 - Story 006 增加 `SPAM_INFERENCE_CONCURRENCY`，默认 `2`，必须为正整数；只限制本地模型推理，不改变采集队列和 D1 客户端的既有并发上限。
 - Story 009 增加 `SPAM_CAPTURE_GROUPS`：空值关闭普通群消息采集；`all` 允许全部群，负数群 ID 逗号列表仅允许指定群。普通群消息为 `source=group/status=pending/label=null`，仅通过管理员 `/review` 领取；重训仍只导出 reviewed。由于 D1 尚未部署，最终 `001_create_samples.sql` 直接支持 `rule/manual/group`，不保留额外升级脚本。配置名与既有 `SPAM_CAPTURE_*` 保持一致。
+- Story 024 因全部群采集需要排除特定群，增加 `SPAM_CAPTURE_EXCLUDE_GROUPS`：默认空，接受逗号分隔的负数群 ID。`records_group()` 中排除优先于 `all` 和指定群列表；该配置不单独启用采集，也不覆盖学习总开关。仅影响后续普通 `group/pending` 入队，不影响规则删除、规则样本采集、管理员人工转发或既有 D1 记录。不执行语言识别。
 - Story 010 将样本升级为 `schema_version=2`，`bio_state` 仅允许 `present/empty/unavailable/not_requested`。普通群消息复用 Handler 已取得的 Bio，不新增请求；规则提前命中的 Bio 仍在删除后的有界 worker 中补充。项目尚未正式积累数据，因此直接重建 D1 和模型，不提供旧库升级、回填或旧模型兼容层。
 - Story 011 将 Python 包统一重命名为 `spamdet`，默认模型目录改为 `models/spamdet`，不保留旧包兼容层。开发期 `make reset-d1` 只在双重确认数据库 ID 后删除 `samples` 表并执行最终 Migration；它不删除 D1 database 或其他表。
 - Story 012 增加 `make spam id=1,2,3` 和 `make ham id=1,2,3`。两者只接受人工确认的标签，使用 `SPAM_ADMIN_ID` 作为 `reviewed_by`，并原子批量同步独立列与 `message_json` 中的 `status/label`。任一 ID 不存在时整批不更新；运维入口可纠正 reviewed 标签，但 Telegram callback 仍不覆盖首次审核结果。
